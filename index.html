@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="开发者在线工具箱" />
+    <title>DevKit - 开发者工具箱</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <a class="brand" href="#json" aria-label="DevKit 首页">
+          <span class="brand-mark">&lt;/&gt;</span>
+          <span>Dev<span>Kit</span></span>
+        </a>
+
+        <nav class="tool-nav" aria-label="工具导航">
+          <p class="nav-label">常用工具</p>
+          <a class="nav-item active" href="#json" data-tool="json"><i data-lucide="braces"></i><span>JSON 工具</span></a>
+          <a class="nav-item" href="#cron" data-tool="cron"><i data-lucide="timer-reset"></i><span>Cron 在线解析</span></a>
+          <a class="nav-item" href="#timestamp" data-tool="timestamp"><i data-lucide="calendar-clock"></i><span>时间戳转换</span></a>
+          <a class="nav-item" href="#regex" data-tool="regex"><i data-lucide="scan-search"></i><span>正则表达式</span></a>
+          <a class="nav-item" href="#markdown" data-tool="markdown"><i data-lucide="notebook-pen"></i><span>Markdown 预览</span></a>
+          <p class="nav-label nav-label-gap">安全加密</p>
+          <a class="nav-item" href="#bcrypt" data-tool="bcrypt"><i data-lucide="key-round"></i><span>bcrypt 生成器</span></a>
+          <a class="nav-item" href="#rsa" data-tool="rsa"><i data-lucide="shield-check"></i><span>RSA 密钥生成</span></a>
+          <a class="nav-item" href="#jwt" data-tool="jwt"><i data-lucide="badge-check"></i><span>JWT 解码器</span></a>
+          <a class="nav-item" href="#password" data-tool="password"><i data-lucide="dice-5"></i><span>随机密码生成</span></a>
+        </nav>
+
+        <div class="side-footer">
+          <i data-lucide="lock-keyhole"></i>
+          <p>所有数据均在浏览器本地处理</p>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">~/devkit</p>
+            <h1 id="tool-title">JSON 工具</h1>
+          </div>
+          <div class="topbar-actions">
+            <span class="local-badge"><i data-lucide="circle-check"></i>LOCAL</span>
+            <button class="icon-button" id="theme-toggle" type="button" aria-label="切换主题" title="切换主题"><i data-lucide="sun"></i></button>
+          </div>
+        </header>
+
+        <section class="tool-panel is-active" id="json" data-title="JSON 工具">
+          <div class="panel-heading">
+            <div>
+              <h2>JSON 校验与格式化</h2>
+              <p>粘贴 JSON 查看树结构、校验语法。转义与去转义对任意文本都可用。</p>
+            </div>
+            <div class="action-row">
+              <button class="secondary-button" id="json-fullscreen" type="button" aria-pressed="false"><i data-lucide="maximize"></i>全屏编辑</button>
+              <button class="secondary-button" id="json-sample" type="button"><i data-lucide="file-code-2"></i>示例</button>
+              <button class="secondary-button" id="json-clear" type="button"><i data-lucide="trash-2"></i>清空</button>
+            </div>
+          </div>
+          <div class="editor-layout">
+            <div class="editor-card json-input-card">
+              <div class="editor-header"><span><i data-lucide="file-json"></i>输入 JSON</span><span class="editor-header-actions"><span class="character-count" id="json-count">0 字符</span><button class="copy-text" type="button" data-copy="json-input">复制</button></span></div>
+              <textarea id="json-input" class="code-input" spellcheck="false" placeholder='例如：{ "name": "DevKit" }'></textarea>
+              <div class="json-input-actions">
+                <button class="secondary-button" id="json-escape" type="button"><i data-lucide="quote"></i>添加转义</button>
+                <button class="secondary-button" id="json-unescape" type="button"><i data-lucide="text-quote"></i>去除转义</button>
+                <button class="secondary-button" id="json-minify" type="button"><i data-lucide="minimize-2"></i>压缩</button>
+              </div>
+            </div>
+            <div class="editor-card output-card">
+              <div class="editor-header"><span><i data-lucide="braces"></i>处理结果</span><span class="editor-header-actions"><button class="copy-text" id="json-expand-all" type="button" aria-pressed="false" disabled>全展开</button><button class="copy-text" type="button" data-copy="json-output">复制</button></span></div>
+              <div id="json-output" class="code-output json-output placeholder-output">处理结果将根据左侧内容实时显示</div>
+            </div>
+          </div>
+          <div class="footer-actions">
+            <span class="validation-state neutral" id="json-status"><i data-lucide="info"></i><span>等待输入</span></span>
+            <span class="status-metrics" id="json-metrics"></span>
+          </div>
+        </section>
+
+        <section class="tool-panel" id="cron" data-title="Cron 在线解析" hidden>
+          <div class="panel-heading">
+            <div><h2>Cron 在线解析</h2><p>输入标准五段 Cron 表达式，查看每个字段的含义与下次执行时间。</p></div>
+          </div>
+          <div class="cron-entry">
+            <label for="cron-input">Cron 表达式</label>
+            <div class="cron-input-row">
+              <input id="cron-input" class="cron-input" value="0 55 */2 * * ?" spellcheck="false" aria-describedby="cron-help" />
+              <button class="primary-button" id="cron-parse" type="button"><i data-lucide="play"></i>解析</button>
+            </div>
+            <p id="cron-help" class="input-hint">Spring 格式：秒 分 时 日 月 周，例如 <code>0 55 */2 * * ?</code></p>
+          </div>
+          <div class="cron-result">
+            <div class="human-cron"><p class="result-label">表达式说明</p><strong id="cron-human">每周一至周五的 09:00 执行</strong></div>
+            <div class="next-runs">
+              <div class="result-heading"><p class="result-label">接下来 5 次执行</p><span id="cron-timezone">本机时区</span></div>
+              <ol id="cron-runs" class="run-list"></ol>
+            </div>
+          </div>
+          <div class="field-grid" id="cron-fields"></div>
+        </section>
+
+        <section class="tool-panel" id="timestamp" data-title="时间戳转换" hidden>
+          <div class="panel-heading"><div><h2>时间戳转换</h2><p>在 Unix 时间戳与本地日期时间之间快速转换。</p></div><button class="secondary-button" id="timestamp-now" type="button"><i data-lucide="clock-3"></i>使用当前时间</button></div>
+          <div class="timestamp-grid">
+            <div class="form-card">
+              <label for="timestamp-input">Unix 时间戳</label>
+              <div class="inline-field"><input id="timestamp-input" inputmode="numeric" placeholder="例如：1724201700000" /><select id="timestamp-unit" aria-label="时间戳单位"><option value="ms">毫秒</option><option value="s">秒</option></select></div>
+              <button class="primary-button wide-button" id="timestamp-to-date" type="button"><i data-lucide="arrow-down-up"></i>转换为日期</button>
+              <div class="timestamp-result" id="timestamp-date-result"><span>本地日期时间</span><strong>等待转换</strong></div>
+            </div>
+            <div class="form-card">
+              <label for="date-input">日期时间</label>
+              <input id="date-input" type="datetime-local" />
+              <button class="primary-button wide-button" id="date-to-timestamp" type="button"><i data-lucide="arrow-down-up"></i>转换为时间戳</button>
+              <div class="timestamp-result"><span>Unix 时间戳</span><strong id="timestamp-ms-result">等待转换</strong><code id="timestamp-s-result">秒：--</code></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="tool-panel" id="regex" data-title="正则表达式" hidden>
+          <div class="panel-heading"><div><h2>正则表达式测试</h2><p>实时匹配、查看分组结果，并支持常用修饰符。</p></div></div>
+          <div class="regex-bar"><span class="regex-slash">/</span><input id="regex-pattern" class="regex-pattern" value="\b\w+@\w+\.\w+\b" spellcheck="false" placeholder="输入正则表达式" /><span class="regex-slash">/</span><label><input class="regex-flag" value="g" type="checkbox" checked />g</label><label><input class="regex-flag" value="i" type="checkbox" />i</label><label><input class="regex-flag" value="m" type="checkbox" />m</label><button class="primary-button" id="regex-run" type="button"><i data-lucide="search"></i>匹配</button></div>
+          <div class="editor-layout">
+            <div class="editor-card"><div class="editor-header"><span><i data-lucide="text"></i>待匹配文本</span></div><textarea id="regex-text" class="code-input" spellcheck="false">联系：hello@devkit.local&#10;备用邮箱：admin@example.com</textarea></div>
+            <div class="editor-card output-card"><div class="editor-header"><span><i data-lucide="list-checks"></i>匹配结果</span><span class="character-count" id="regex-count">0 个匹配</span></div><div class="match-output" id="regex-output"></div></div>
+          </div>
+        </section>
+
+        <section class="tool-panel" id="markdown" data-title="Markdown 预览" hidden>
+          <div class="panel-heading"><div><h2>在线 Markdown</h2><p>左侧编辑，右侧即时预览。内容仅保存在当前页面。</p></div><button class="secondary-button" id="markdown-sample" type="button"><i data-lucide="file-text"></i>示例</button></div>
+          <div class="editor-layout">
+            <div class="editor-card"><div class="editor-header"><span><i data-lucide="square-pen"></i>Markdown</span><span class="character-count" id="markdown-count">0 字符</span></div><textarea id="markdown-input" class="code-input" spellcheck="false" placeholder="# 开始书写 Markdown"></textarea></div>
+            <div class="editor-card output-card"><div class="editor-header"><span><i data-lucide="eye"></i>预览</span></div><article id="markdown-output" class="markdown-output placeholder-output">预览内容将显示在这里</article></div>
+          </div>
+        </section>
+
+        <section class="tool-panel" id="bcrypt" data-title="bcrypt 生成器" hidden>
+          <div class="panel-heading"><div><h2>bcrypt 密码哈希</h2><p>使用可调成本因子生成安全的单向密码哈希。</p></div></div>
+          <div class="security-layout">
+            <div class="form-card">
+              <label for="bcrypt-password">原始文本</label>
+              <div class="password-field"><input id="bcrypt-password" type="password" placeholder="输入需要加密的内容" /><button class="icon-button inner-icon" id="toggle-password" type="button" aria-label="显示文本" title="显示文本"><i data-lucide="eye"></i></button></div>
+              <div class="range-row"><div><label for="bcrypt-rounds">成本因子 <span id="rounds-value">10</span></label><p>数值越高，计算耗时越长</p></div><input id="bcrypt-rounds" type="range" min="4" max="14" value="10" /></div>
+              <button class="primary-button wide-button" id="bcrypt-generate" type="button"><i data-lucide="key-round"></i>生成 bcrypt 哈希</button>
+            </div>
+            <div class="hash-card">
+              <div class="hash-card-heading"><span><i data-lucide="fingerprint"></i>哈希结果</span><button class="copy-text" type="button" data-copy="bcrypt-output">复制</button></div>
+              <code id="bcrypt-output" class="hash-output placeholder-output">等待生成...</code>
+              <div class="hash-meta"><span>算法 <b>bcrypt</b></span><span>哈希长度 <b id="hash-length">0</b></span></div>
+            </div>
+          </div>
+          <p class="privacy-note"><i data-lucide="shield"></i>原始文本不会离开当前设备，页面刷新后不会保存。</p>
+        </section>
+
+        <section class="tool-panel" id="rsa" data-title="RSA 密钥生成" hidden>
+          <div class="panel-heading"><div><h2>RSA 密钥对生成</h2><p>在本地生成用于加密、签名或 API 集成的 RSA 密钥对。</p></div></div>
+          <div class="rsa-controls">
+            <div class="select-field"><label for="rsa-bits">密钥长度</label><select id="rsa-bits"><option value="2048">2048 位</option><option value="3072">3072 位</option><option value="4096">4096 位</option></select></div>
+            <p class="rsa-format-note">输出格式：PEM / PKCS#8</p>
+            <button class="primary-button" id="rsa-generate" type="button"><i data-lucide="shield-plus"></i>生成密钥对</button>
+          </div>
+          <div class="key-grid">
+            <div class="key-card"><div class="key-heading"><span><i data-lucide="key"></i>公钥</span><button class="copy-text" type="button" data-copy="rsa-public">复制</button></div><textarea id="rsa-public" class="key-output" readonly placeholder="生成后显示 RSA 公钥"></textarea></div>
+            <div class="key-card private-key"><div class="key-heading"><span><i data-lucide="lock"></i>私钥</span><button class="copy-text" type="button" data-copy="rsa-private">复制</button></div><textarea id="rsa-private" class="key-output" readonly placeholder="生成后显示 RSA 私钥"></textarea></div>
+          </div>
+          <div class="private-warning"><i data-lucide="triangle-alert"></i><span>私钥仅应保存在可信环境中，切勿提交到代码仓库或发送给他人。</span></div>
+        </section>
+
+        <section class="tool-panel" id="jwt" data-title="JWT 解码器" hidden>
+          <div class="panel-heading"><div><h2>JWT 解码器</h2><p>读取 JSON Web Token 的 Header 和 Payload，不会验证签名。</p></div><button class="secondary-button" id="jwt-clear" type="button"><i data-lucide="trash-2"></i>清空</button></div>
+          <div class="editor-card jwt-input-card"><div class="editor-header"><span><i data-lucide="badge-check"></i>JWT Token</span><span class="character-count" id="jwt-status">等待输入</span></div><textarea id="jwt-input" class="jwt-input" spellcheck="false" placeholder="粘贴 eyJhbGciOi... 格式的 JWT Token"></textarea></div>
+          <div class="jwt-grid">
+            <div class="editor-card jwt-output-card"><div class="editor-header"><span><i data-lucide="braces"></i>Header</span><button class="copy-text" type="button" data-copy="jwt-header">复制</button></div><pre id="jwt-header" class="code-output placeholder-output">Header 将显示在这里</pre></div>
+            <div class="editor-card jwt-output-card"><div class="editor-header"><span><i data-lucide="braces"></i>Payload</span><button class="copy-text" type="button" data-copy="jwt-payload">复制</button></div><pre id="jwt-payload" class="code-output placeholder-output">Payload 将显示在这里</pre></div>
+          </div>
+          <div id="jwt-details" class="jwt-details" hidden></div>
+        </section>
+
+        <section class="tool-panel" id="password" data-title="随机密码生成" hidden>
+          <div class="panel-heading"><div><h2>随机密码生成</h2><p>使用浏览器安全随机数生成不重复、可配置的密码。</p></div></div>
+          <div class="password-generator">
+            <div class="password-result"><code id="password-output" class="placeholder-output">点击生成密码</code><button class="icon-button" type="button" data-copy="password-output" aria-label="复制全部密码" title="复制全部密码"><i data-lucide="copy"></i></button></div>
+            <div class="password-options">
+              <div class="range-row"><div><label for="password-length">密码长度 <span id="password-length-value">16</span></label><p>建议至少使用 14 个字符</p></div><input id="password-length" type="range" min="8" max="64" value="16" /></div>
+              <div class="password-quantity"><label for="password-count">生成数量</label><div><input id="password-count" type="number" min="1" max="20" value="1" inputmode="numeric" /><span>一次生成 1–20 个密码</span></div></div>
+              <div class="check-grid"><label><input id="password-lower" type="checkbox" checked />小写字母 <code>a-z</code></label><label><input id="password-upper" type="checkbox" checked />大写字母 <code>A-Z</code></label><label><input id="password-number" type="checkbox" checked />数字 <code>0-9</code></label><label><input id="password-symbol" type="checkbox" checked />特殊符号 <code>!@#$</code></label></div>
+              <button class="primary-button wide-button" id="password-generate" type="button"><i data-lucide="refresh-cw"></i>生成随机密码</button>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <!--
+      SRI 待补：crossorigin 已就位，还需 integrity 才能真正校验。
+      在可联网的机器上执行下面两条命令，把输出粘到对应 script 的 integrity 属性即可：
+
+      curl -sL https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js \
+        | openssl dgst -sha384 -binary | openssl base64 -A | sed 's/^/sha384-/'
+
+      curl -sL https://cdn.jsdelivr.net/npm/bcryptjs@2.4.3/dist/bcrypt.min.js \
+        | openssl dgst -sha384 -binary | openssl base64 -A | sed 's/^/sha384-/'
+
+      注意：integrity 值必须与实际文件完全一致，填错会导致脚本被浏览器拒绝执行。
+    -->
+    <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bcryptjs@2.4.3/dist/bcrypt.min.js" crossorigin="anonymous"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

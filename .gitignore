@@ -1,0 +1,17 @@
+# 编辑器
+.idea/
+.vscode/
+*.swp
+
+# 依赖与构建产物
+node_modules/
+dist/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 本次改造遗留的中间文件（沙箱无删除权限，暂不纳入版本管理）
+style.css.backup
+style.formatted.css
+.writetest
