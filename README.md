@@ -103,12 +103,12 @@ app.js        全部逻辑，无框架无构建步骤
 style.css     样式与深浅主题的 token 定义
 CNAME         GitHub Pages 自定义域名（部署前需替换为真实域名）
 DEPLOY.md     部署到 GitHub Pages 与配置域名的步骤
-.github/      Actions 工作流，推送 main 后自动发布
 ```
 
 ## 部署
 
-推送到 `main` 分支即自动发布到 GitHub Pages，详见 [DEPLOY.md](DEPLOY.md)。
+GitHub Pages 从 `main` 分支根目录直接发布，推送即生效，无构建步骤。
+详见 [DEPLOY.md](DEPLOY.md)。
 
 ## 隐私
 

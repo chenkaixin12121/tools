@@ -3,7 +3,9 @@
 本项目是纯静态站点（HTML/CSS/JS，无构建步骤），所有本地资源用相对路径引用，
 外部库走 CDN，因此不需要为部署修改任何业务代码。
 
-推送到 `main` 分支后由 `.github/workflows/deploy.yml` 自动发布。
+部署方式采用 **从分支直接发布**：GitHub Pages 直接读取 `main` 分支根目录的文件，
+推送即生效，不需要 CI 流程。没有构建步骤的项目用不上 GitHub Actions，
+省掉 workflow 也就省掉了 action 版本维护。
 
 ---
 
@@ -40,15 +42,14 @@ tools.example.com
 git status --short
 
 # 补充新增的部署文件
-git add .github/workflows/deploy.yml CNAME .nojekyll DEPLOY.md
+git add CNAME .nojekyll DEPLOY.md README.md
 
-git commit -m "chore: 初始化开发者工具箱并配置 Pages 自动部署"
+git commit -m "chore: 初始化开发者工具箱并配置 Pages 部署"
 
-# 默认分支名改成 main，与 workflow 的触发分支一致
+# Pages 从 main 分支发布，先把默认分支名改过来
 git branch -M main
 
-# 换成你自己的用户名
-git remote add origin https://github.com/<你的用户名>/tools.git
+git remote add origin https://github.com/chenkaixin12121/tools.git
 
 git push -u origin main
 ```
@@ -57,18 +58,21 @@ git push -u origin main
 （Settings → Developer settings → Personal access tokens，勾 `repo` 权限），
 账户密码在 2021 年之后已经不能用于 git 推送了。
 
-## 第 3 步：把 Pages 的来源切成 Actions
+## 第 3 步：开启 Pages，来源选分支
 
-仓库页面 → Settings → Pages → Build and deployment → Source
-选择 **GitHub Actions**（不是 Deploy from a branch）。
+仓库页面 → Settings → Pages → Build and deployment：
 
-这一步必须做，否则 workflow 跑到发布环节会因为 Pages 未启用而失败。
+- Source 选 **Deploy from a branch**
+- Branch 选 `main`，目录选 `/ (root)`
+- 点 Save
 
-切换后回到 Actions 标签页，应该能看到一次正在跑的 Deploy to GitHub Pages。
-首次部署通常 1 分钟内完成。跑完后先用 GitHub 给的默认地址确认站点本身没问题：
+保存后 GitHub 立刻开始发布，首次通常一两分钟。仓库首页右侧的 Deployments，
+或 Settings → Pages 顶部的提示条，都能看到进度和最终地址。
+
+先用 GitHub 给的默认地址确认站点本身没问题：
 
 ```
-https://<你的用户名>.github.io/tools/
+https://chenkaixin12121.github.io/tools/
 ```
 
 ## 第 4 步：在域名服务商配置 DNS
@@ -80,7 +84,7 @@ https://<你的用户名>.github.io/tools/
 | --- | --- |
 | 记录类型 | CNAME |
 | 主机记录 / Name | `tools`（只填子域名前缀，不是完整域名） |
-| 记录值 / Target | `<你的用户名>.github.io`（结尾没有斜杠，不带仓库名） |
+| 记录值 / Target | `chenkaixin12121.github.io`（结尾没有斜杠，不带仓库名） |
 | TTL | 默认值即可，或填 600 |
 
 子域名接入只需要这一条记录。顶级域名（`example.com` 这种）才需要配 4 条 A 记录，
@@ -97,8 +101,24 @@ dig tools.yourdomain.com +short
 nslookup tools.yourdomain.com
 ```
 
-返回里出现 `<你的用户名>.github.io` 就说明解析已经生效。
+返回里出现 `chenkaixin12121.github.io` 就说明解析已经生效。
 DNS 传播一般几分钟到半小时，个别服务商会更久。
+
+### 如果账户下已经有别的域名指向 github.io
+
+不冲突。只要主机名不同（比如已有的是 `yourdomain.com` 或 `www.yourdomain.com`，
+这次新加的是 `tools.yourdomain.com`），DNS 层面是两条独立记录，
+GitHub 侧也是各仓库分别配置自定义域名，互不影响。
+
+但要注意一个级联行为：如果那个域名配在 **`chenkaixin12121.github.io` 仓库**（用户主站）的
+Pages 设置里，它会作用于该账户下所有没有单独配域名的项目站点。
+表现是第 3 步验证用的 `chenkaixin12121.github.io/tools/` 会跳转到 `yourdomain.com/tools/`，
+这属于正常现象，不是部署失败。等本仓库配好 `tools.yourdomain.com` 之后，
+项目自己的域名优先，站点就从该子域名提供服务。
+
+唯一真正会报错的情况是同一个主机名已被另一个仓库占用 ——
+一个域名同时只能绑一个仓库，占用时第 5 步保存会提示域名已被使用。
+配置前确认这个子域名没写进其他仓库的 CNAME 文件即可。
 
 ## 第 5 步：在 GitHub 填入自定义域名并开启 HTTPS
 
@@ -113,7 +133,7 @@ GitHub 会做一次 DNS 校验，通过后下面会出现绿色的对勾。
 
 注意这里和 `CNAME` 文件的关系：网页端保存自定义域名时，GitHub 会往仓库里提交一个
 `CNAME` 文件。我们已经预先放好这个文件，所以两边内容必须一致，
-否则后续 Actions 部署会用仓库里的旧值把网页端的设置覆盖掉。
+否则下次推送会用仓库里的旧值把网页端的设置覆盖掉。
 如果你在网页端填了一个不同的域名，记得把仓库里的 `CNAME` 同步改掉。
 
 ---
@@ -128,28 +148,32 @@ git commit -m "描述这次改动"
 git push
 ```
 
-Actions 标签页能看到部署进度，绿勾之后刷新站点就是新版本。
+推完等十几秒到一分钟就会生效，仓库首页右侧 Deployments 能看到状态。
 浏览器有缓存时用 Ctrl+F5 强刷。
 
 ## 排错对照表
 
 | 现象 | 原因与处理 |
 | --- | --- |
-| workflow 报 "Pages site not found" 或发布步骤失败 | 第 3 步没做，Source 仍是 Deploy from a branch |
+| 访问返回 404 | Pages 还没开启，或 Branch/目录选错（要 `main` + `/ (root)`） |
 | 站点能开但样式全丢 | 检查 `CNAME` 内容是否写成了带 `https://` 或带路径的形式 |
 | 自定义域名一直转圈 / 502 | Cloudflare 代理开着，先切回 DNS only |
 | 域名校验过不了 | CNAME 记录值误填成了 `用户名.github.io/tools`，不能带仓库名 |
 | Enforce HTTPS 灰着点不动 | 证书还在签发，等待即可，不用反复改设置 |
-| 推送后线上没更新 | 看 Actions 是否失败；确认推的是 `main` 分支 |
+| 推送后线上没更新 | 确认推的是 `main` 分支；看 Deployments 里最新一次的状态 |
 
-## 一点补充说明
+## 关于 .nojekyll
 
-`.nojekyll` 是保险文件。当前用 Actions 上传产物的方式部署不会经过 Jekyll，
-所以它此刻不起作用；但如果哪天改回从分支部署，它能防止 Jekyll 忽略下划线开头的文件。
+从分支部署会经过 Jekyll，`.nojekyll` 的作用是让 Pages 跳过这一步，直接按原样提供文件。
+保留它有两个好处：发布更快，以及避免 Jekyll 把 `README.md`、`DEPLOY.md`
+这类 markdown 文件额外转换成 HTML 页面。
 
-workflow 里的 action 版本钉在 `checkout@v4` / `configure-pages@v5` /
-`upload-pages-artifact@v3` / `deploy-pages@v4`。这套组合稳定可用。
-`deploy-pages` 已有更高的大版本，但我没有核实其当前稳定性，
-需要升级时请自行到 [actions/deploy-pages](https://github.com/actions/deploy-pages)
-的 Releases 页面确认后再改。
+本项目代码里没有 `{{` 或 `{%` 这类 Liquid 语法（已确认），
+所以即使经过 Jekyll 也不会被破坏，但跳过更省事。
+
+## 为什么不用 GitHub Actions
+
+这个项目没有构建步骤，workflow 能做的事情就是把仓库原样搬到 Pages，
+而分支部署本身就是这个行为。多一层 CI 只会多出 action 版本维护的负担，
+没有换来任何东西。将来如果引入打包、压缩或测试环节，再加 workflow 才有意义。
 
