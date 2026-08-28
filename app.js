@@ -88,16 +88,27 @@ function activateTool(hash) {
   toolInitializers[id]?.();
 }
 
-function syncJsonFullscreenButton() {
-  const button = $('#json-fullscreen');
-  const active = document.fullscreenElement === $('#json');
+// 支持全屏编辑的面板 ID 列表，按钮 ID 约定为 `${id}-fullscreen`
+const FULLSCREEN_PANELS = ['json', 'markdown'];
+
+// 同步单个面板的全屏按钮文案与图标
+function syncFullscreenButton(panelId) {
+  const button = $(`#${panelId}-fullscreen`);
+  if (!button) return;
+  const active = document.fullscreenElement === $(`#${panelId}`);
   button.setAttribute('aria-pressed', String(active));
   button.innerHTML = `<i data-lucide="${active ? 'minimize' : 'maximize'}"></i>${active ? '退出全屏' : '全屏编辑'}`;
+}
+
+// 全屏状态变化时统一刷新所有按钮，避免遗漏残留状态
+function syncAllFullscreenButtons() {
+  FULLSCREEN_PANELS.forEach(syncFullscreenButton);
   refreshIcons();
 }
 
-async function toggleJsonFullscreen() {
-  const panel = $('#json');
+async function togglePanelFullscreen(panelId) {
+  const panel = $(`#${panelId}`);
+  if (!panel) return;
   try {
     if (document.fullscreenElement === panel) await document.exitFullscreen();
     else await panel.requestFullscreen();
@@ -345,10 +356,21 @@ function expandAllJsonNodes() {
   if (truncated) showToast(`节点过多，已展开前 ${TREE_EXPAND_ALL_LIMIT} 个，其余请手动展开`);
 }
 
-/** 折叠所有分支节点，含根节点，回到只剩一行的状态。 */
+/**
+ * 折叠所有分支节点，但保留根节点展开：全折叠后至少还能看到第一层键名，
+ * 否则整棵树只剩一行，用户失去定位上下文。
+ */
 function collapseAllJsonNodes() {
   const output = $('#json-output');
-  output.querySelectorAll('.tree-node:not(.collapsed)').forEach((node) => treeBranchControls.get(node)?.(true));
+  const root = output.firstElementChild;
+  if (!root) { setJsonExpandAllState(true, false); return; }
+  // 先展开根节点：折叠态的根没有子 DOM，展开会补建出默认展开的第二层，
+  // 所以必须先补建、再统一折叠，顺序反了会残留两层。
+  treeBranchControls.get(root)?.(false);
+  output.querySelectorAll('.tree-node:not(.collapsed)').forEach((node) => {
+    if (node === root) return;
+    treeBranchControls.get(node)?.(true);
+  });
   setJsonExpandAllState(true, false);
 }
 
@@ -829,8 +851,11 @@ function bindEvents() {
 
   window.addEventListener('hashchange', () => activateTool(location.hash));
   $$('.nav-item').forEach((item) => item.addEventListener('click', () => window.setTimeout(() => activateTool(location.hash), 0)));
-  $('#json-fullscreen').addEventListener('click', toggleJsonFullscreen);
-  document.addEventListener('fullscreenchange', syncJsonFullscreenButton);
+  // 统一绑定各面板的全屏按钮
+  FULLSCREEN_PANELS.forEach((panelId) => {
+    $(`#${panelId}-fullscreen`)?.addEventListener('click', () => togglePanelFullscreen(panelId));
+  });
+  document.addEventListener('fullscreenchange', syncAllFullscreenButtons);
   // 计数即时更新，解析与渲染走防抖。
   $('#json-input').addEventListener('input', updateJsonCharCount);
   $('#json-input').addEventListener('input', debouncedJsonRefresh);

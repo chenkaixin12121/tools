@@ -133,7 +133,16 @@
         </section>
 
         <section class="tool-panel" id="markdown" data-title="Markdown 预览" hidden>
-          <div class="panel-heading"><div><h2>在线 Markdown</h2><p>左侧编辑，右侧即时预览。内容仅保存在当前页面。</p></div><button class="secondary-button" id="markdown-sample" type="button"><i data-lucide="file-text"></i>示例</button></div>
+          <div class="panel-heading">
+            <div>
+              <h2>在线 Markdown</h2>
+              <p>左侧编辑，右侧即时预览。内容仅保存在当前页面。</p>
+            </div>
+            <div class="action-row">
+              <button class="secondary-button" id="markdown-fullscreen" type="button" aria-pressed="false"><i data-lucide="maximize"></i>全屏编辑</button>
+              <button class="secondary-button" id="markdown-sample" type="button"><i data-lucide="file-text"></i>示例</button>
+            </div>
+          </div>
           <div class="editor-layout">
             <div class="editor-card"><div class="editor-header"><span><i data-lucide="square-pen"></i>Markdown</span><span class="character-count" id="markdown-count">0 字符</span></div><textarea id="markdown-input" class="code-input" spellcheck="false" placeholder="# 开始书写 Markdown"></textarea></div>
             <div class="editor-card output-card"><div class="editor-header"><span><i data-lucide="eye"></i>预览</span></div><article id="markdown-output" class="markdown-output placeholder-output">预览内容将显示在这里</article></div>
