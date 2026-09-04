@@ -89,7 +89,7 @@ function activateTool(hash) {
 }
 
 // 支持全屏编辑的面板 ID 列表，按钮 ID 约定为 `${id}-fullscreen`
-const FULLSCREEN_PANELS = ['json', 'markdown'];
+const FULLSCREEN_PANELS = ['json', 'yaml', 'markdown'];
 
 // 同步单个面板的全屏按钮文案与图标
 function syncFullscreenButton(panelId) {
@@ -323,19 +323,23 @@ function setJsonMetrics(text) {
 }
 
 /** 同步全展开按钮的可用状态与文案；树视图之外一律禁用。 */
-function setJsonExpandAllState(enabled, expanded = false) {
-  const button = $('#json-expand-all');
+function syncTreeExpandButton(button, enabled, expanded = false) {
+  if (!button) return;
   button.disabled = !enabled;
   button.setAttribute('aria-pressed', String(enabled && expanded));
   button.textContent = enabled && expanded ? '全折叠' : '全展开';
 }
 
+function setJsonExpandAllState(enabled, expanded = false) {
+  syncTreeExpandButton($('#json-expand-all'), enabled, expanded);
+}
+
 /**
  * 逐轮展开所有折叠节点：展开会补建子 DOM，新子节点里可能还有折叠项，
  * 所以要循环到没有折叠节点为止，同时顺带点掉「还有 N 项」的分批按钮。
+ * JSON 与 YAML 面板共用同一份树交互逻辑，容器与按钮由调用方传入。
  */
-function expandAllJsonNodes() {
-  const output = $('#json-output');
+function expandAllTreeNodes(output, button) {
   // live 集合，展开过程中 length 会自动增长，用来卡住节点总数上限。
   const allNodes = output.getElementsByClassName('tree-node');
   let truncated = false;
@@ -352,18 +356,21 @@ function expandAllJsonNodes() {
     // 理论上不会发生：仍有折叠节点却一个都处理不了时直接退出，避免死循环。
     if (!handled) break;
   }
-  setJsonExpandAllState(true, !truncated);
+  syncTreeExpandButton(button, true, !truncated);
   if (truncated) showToast(`节点过多，已展开前 ${TREE_EXPAND_ALL_LIMIT} 个，其余请手动展开`);
+}
+
+function expandAllJsonNodes() {
+  expandAllTreeNodes($('#json-output'), $('#json-expand-all'));
 }
 
 /**
  * 折叠所有分支节点，但保留根节点展开：全折叠后至少还能看到第一层键名，
  * 否则整棵树只剩一行，用户失去定位上下文。
  */
-function collapseAllJsonNodes() {
-  const output = $('#json-output');
+function collapseAllTreeNodes(output, button) {
   const root = output.firstElementChild;
-  if (!root) { setJsonExpandAllState(true, false); return; }
+  if (!root) { syncTreeExpandButton(button, true, false); return; }
   // 先展开根节点：折叠态的根没有子 DOM，展开会补建出默认展开的第二层，
   // 所以必须先补建、再统一折叠，顺序反了会残留两层。
   treeBranchControls.get(root)?.(false);
@@ -371,7 +378,11 @@ function collapseAllJsonNodes() {
     if (node === root) return;
     treeBranchControls.get(node)?.(true);
   });
-  setJsonExpandAllState(true, false);
+  syncTreeExpandButton(button, true, false);
+}
+
+function collapseAllJsonNodes() {
+  collapseAllTreeNodes($('#json-output'), $('#json-expand-all'));
 }
 
 function showJsonTree() {
@@ -413,6 +424,319 @@ function updateJsonCount() {
   refreshJsonOutput();
 }
 
+/* ── YAML 工具（依赖 js-yaml，通过 CDN 加载后挂在 window.jsyaml 上） ── */
+
+function setYamlStatus(style, icon, message) {
+  const status = $('#yaml-status');
+  status.className = `validation-state ${style}`;
+  let label = status.querySelector('span');
+  if (status.dataset.icon !== icon || !label) {
+    status.innerHTML = `<i data-lucide="${icon}"></i><span></span>`;
+    status.dataset.icon = icon;
+    label = status.querySelector('span');
+    refreshIcons();
+  }
+  label.textContent = message;
+}
+
+function showYamlText(value, placeholder = false) {
+  const output = $('#yaml-output');
+  output.textContent = value;
+  output.classList.remove('tree-view');
+  output.classList.toggle('placeholder-output', placeholder || !value);
+  delete output.dataset.copyValue;
+  syncTreeExpandButton($('#yaml-expand-all'), false);
+}
+
+function setYamlMetrics(text) {
+  $('#yaml-metrics').innerHTML = text;
+}
+
+/**
+ * js-yaml 会按标签产出 Date、Uint8Array 等特殊对象，
+ * 树视图把它们当普通对象展开只会得到空分支，先转成可读形式。
+ * seen 只记录当前递归路径上的对象，用于拦截锚点自引用造成的环；
+ * 多处共享同一引用（非环）不会误伤——退出递归时会从记录里移除。
+ */
+function normalizeYamlValue(value, seen = new WeakSet()) {
+  if (value instanceof Date) return value.toISOString();
+  if (ArrayBuffer.isView(value)) return Array.from(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
+  if (Array.isArray(value)) {
+    if (seen.has(value)) return '[循环引用]';
+    seen.add(value);
+    const result = value.map((item) => normalizeYamlValue(item, seen));
+    seen.delete(value);
+    return result;
+  }
+  if (value !== null && typeof value === 'object') {
+    if (seen.has(value)) return '[循环引用]';
+    seen.add(value);
+    const result = {};
+    for (const key of Object.keys(value)) result[key] = normalizeYamlValue(value[key], seen);
+    seen.delete(value);
+    return result;
+  }
+  return value;
+}
+
+/** 解析失败时 js-yaml 抛 YAMLException，mark 里的 line / column 都是 0 基。 */
+
+/**
+ * 判断某一行行尾是否处于「没写完」的状态：引号未配对，或 [ { 少了右括号。
+ * 这是 js-yaml 把错误报到下一行 / 文档末尾的常见根源（启发式，用于归因提示）。
+ * 行内注释先剥离——只有行首或前接空白的 # 才算注释，引号内的 # 不剥。
+ */
+function yamlLineLooksOpen(text) {
+  if (!text) return false;
+  let code = '';
+  let quote = null;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (quote) {
+      if (quote === '"' && ch === '\\') { i += 1; code += ch; code += text[i] ?? ''; continue; }
+      if (quote === "'" && ch === "'" && text[i + 1] === "'") { i += 1; code += "''"; continue; }
+      code += ch;
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") { quote = ch; code += ch; continue; }
+    if (ch === '#' && (i === 0 || /\s/.test(text[i - 1]))) break;
+    code += ch;
+  }
+  if (quote) return true; // 引号开了没合上
+  let depth = 0;
+  for (const ch of code) {
+    if (ch === '[' || ch === '{') depth += 1;
+    else if (ch === ']' || ch === '}') depth = Math.max(0, depth - 1);
+  }
+  return depth > 0;
+}
+
+/** 行号槽：按输入框逻辑行数重绘行号，并同步槽宽与输入框的左内边距。 */
+function updateYamlGutter() {
+  const textarea = $('#yaml-input');
+  const gutter = $('#yaml-gutter');
+  const count = Math.max(1, textarea.value.split('\n').length);
+  const width = Math.round(String(count).length * 7.5) + 26; // 数字字宽 + 左右内边距 + 边框
+  const numbers = [];
+  for (let i = 1; i <= count; i += 1) numbers.push(String(i));
+  gutter.textContent = numbers.join('\n');
+  gutter.style.width = `${width}px`;
+  textarea.style.paddingLeft = `${width + 10}px`;
+}
+
+/** 输入框滚动时带动行号槽同步滚动，保证行号始终贴着对应代码行。 */
+function syncYamlGutterScroll() {
+  $('#yaml-gutter').scrollTop = $('#yaml-input').scrollTop;
+}
+
+/** 只把编辑器滚动到指定 0 基行，不抢焦点、不动光标——用户可能正在别处输入。 */
+function revealYamlLine(line) {
+  const textarea = $('#yaml-input');
+  const lines = textarea.value.split('\n');
+  const target = Math.max(0, Math.min(line, lines.length - 1));
+  // 行高 12.5px × 1.7 ≈ 21.25px；让目标行滚到可视区上三分之一处。
+  textarea.scrollTop = Math.max(0, Math.round(target * 21.25 - (textarea.clientHeight - 60) / 2));
+  syncYamlGutterScroll();
+}
+
+/**
+ * 渲染语法错误的定位视图：把出错行连同前后几行按原文展示，
+ * 带右对齐的行号，出错行整体高亮，并从出错列起标出问题区段。
+ * 行号列取自 mark（0 基），展示时全部加 1，与编辑器行号一致。
+ */
+function renderYamlErrorView(error) {
+  const mark = error.mark;
+  const output = $('#yaml-output');
+  const lines = $('#yaml-input').value.split('\n');
+  const total = lines.length;
+  const width = String(total).length;
+  const reportLine = mark.line; // js-yaml 报告的 0 基行号
+  const reportCol = mark.column;
+  const reasonText = error.reason || error.message;
+
+  // 归因：js-yaml 常把「行尾没闭合」结构（未配对的引号、缺右括号的 [ / {）
+  // 报成下一行的行首，或直接报在文档末尾。命中这类信号且上一行行尾看着没写完时，
+  // 把上一行当作真正的问题行做高亮与跳转；js-yaml 的上报行仅保留弱标识。
+  const eof = reportLine >= total;
+  const looksContinuation = reportCol === 0 || /unexpected end of the stream/i.test(reasonText);
+  let activeLine = Math.max(0, Math.min(reportLine, total - 1));
+  let suspect = false;
+  if (looksContinuation) {
+    // 上报点落在行首 / 文档末尾时，向上找最近一行行尾没写完的行（多行引号串的起点
+    // 可能隔了好几行），把那一行当作真正的问题行。
+    const start = eof ? total - 1 : reportLine - 1;
+    for (let i = start; i >= Math.max(0, start - 3); i -= 1) {
+      if (yamlLineLooksOpen(lines[i] ?? '')) { activeLine = i; suspect = true; break; }
+    }
+  }
+
+  const from = Math.max(0, activeLine - 3);
+  const to = Math.min(total - 1, activeLine + 2);
+
+  const view = document.createElement('div');
+  view.className = 'yaml-errview';
+
+  const reason = document.createElement('p');
+  reason.className = 'yaml-errreason';
+  reason.textContent = suspect
+    ? `第 ${activeLine + 1} 行行尾疑似未闭合，js-yaml 把错误报到了${eof ? '文档末尾' : `第 ${reportLine + 1} 行`}：${reasonText}`
+    : `第 ${reportLine + 1} 行，第 ${reportCol + 1} 列：${reasonText}`;
+  view.append(reason);
+
+  const gutter = document.createElement('div');
+  gutter.className = 'yaml-errlines';
+  for (let index = from; index <= to; index += 1) {
+    const row = document.createElement('div');
+    const isActive = index === activeLine;
+    const isReportRow = suspect && index === reportLine && !eof && !isActive;
+    row.className = `yaml-errline${isActive ? ' is-error' : ''}${isReportRow ? ' is-report' : ''}`;
+    const number = document.createElement('span');
+    number.className = 'yaml-errno';
+    number.textContent = String(index + 1).padStart(width, ' ');
+    const code = document.createElement('code');
+    code.className = 'yaml-errcode';
+    const text = lines[index] ?? '';
+    // 归因命中时不按上报列切行（那列属于下一行），整行作为问题区段标红。
+    if (isActive && !suspect && reportCol > 0 && reportCol < text.length) {
+      code.append(document.createTextNode(text.slice(0, reportCol)));
+      const bad = document.createElement('mark');
+      bad.textContent = text.slice(reportCol);
+      code.append(bad);
+    } else {
+      code.textContent = text;
+    }
+    if (isReportRow) {
+      const note = document.createElement('span');
+      note.className = 'yaml-errnote';
+      note.textContent = '　← js-yaml 在此报告';
+      code.append(note);
+    }
+    row.append(number, code);
+    gutter.append(row);
+  }
+  view.append(gutter);
+
+  output.replaceChildren(view);
+  output.classList.remove('tree-view', 'placeholder-output');
+  syncTreeExpandButton($('#yaml-expand-all'), false);
+  // 复制按钮输出一份纯文本诊断，便于贴进 issue / 聊天。
+  const excerpt = lines.slice(from, to + 1).map((text, index) => `${String(from + index + 1).padStart(width, ' ')} | ${text}`).join('\n');
+  output.dataset.copyValue = suspect
+    ? `YAML 解析失败：${reasonText}\n位置：第 ${activeLine + 1} 行行尾疑似未闭合（js-yaml 报在${eof ? '文档末尾' : `第 ${reportLine + 1} 行`}）\n\n${excerpt}`
+    : `YAML 解析失败：${reasonText}\n位置：第 ${reportLine + 1} 行，第 ${reportCol + 1} 列\n\n${excerpt}`;
+  return activeLine;
+}
+
+function showYamlError(error) {
+  setYamlMetrics('');
+  const mark = error.mark;
+  if (mark && typeof mark.line === 'number') {
+    setYamlStatus('error', 'circle-x', `第 ${mark.line + 1} 行附近有语法错误`);
+    const activeLine = renderYamlErrorView(error);
+    revealYamlLine(activeLine);
+  } else {
+    // 深递归等异常没有 mark，退回普通文本提示。
+    setYamlStatus('error', 'circle-x', '格式有误');
+    showYamlText(`YAML 解析失败：${error.message || error.reason}`);
+  }
+}
+
+function showYamlTree() {
+  // 判空用 trim 后的副本；解析必须用原文——trim 会吞掉前导空行，
+  // 导致 js-yaml 报出的行号比编辑器里看到的少几行。
+  const raw = $('#yaml-input').value;
+  const input = raw.trim();
+  if (!input) { setYamlStatus('neutral', 'info', '等待输入'); return; }
+  if (!window.jsyaml) {
+    setYamlStatus('error', 'circle-x', '解析库未加载');
+    showYamlText('js-yaml 未加载，请检查网络后刷新页面。', true);
+    return;
+  }
+  try {
+    const parsed = normalizeYamlValue(window.jsyaml.load(raw));
+    if (parsed === undefined) {
+      // 空文档在输入为空时已被外层拦截，此处只兜底纯空白/无节点等边界情况。
+      showYamlText('内容为空，没有可展示的节点。', true);
+      setYamlMetrics('');
+      setYamlStatus('neutral', 'info', '空 YAML 文档');
+      return;
+    }
+    const output = $('#yaml-output');
+    output.replaceChildren(createJsonTreeNode(null, parsed));
+    output.classList.remove('placeholder-output');
+    output.classList.add('tree-view');
+    output.dataset.copyValue = JSON.stringify(parsed, null, 2);
+    const { nodes, depth } = measureJson(parsed);
+    setYamlMetrics(`<span>nodes <b>${nodes}</b></span><span>depth <b>${depth}</b></span><span>chars <b>${input.length}</b></span>`);
+    setYamlStatus('success', 'circle-check', 'YAML 格式正确');
+    syncTreeExpandButton($('#yaml-expand-all'), parsed !== null && typeof parsed === 'object');
+  } catch (error) {
+    // 深递归抛出的 RangeError 等没有 mark，也一并落进错误分支展示。
+    showYamlError(error);
+  }
+}
+
+/** 字符数需要即时反馈，与防抖的输出刷新分开（与 JSON 面板保持一致）。 */
+function updateYamlCharCount() {
+  $('#yaml-count').textContent = `${$('#yaml-input').value.length} 字符`;
+}
+
+function refreshYamlOutput() {
+  const input = $('#yaml-input').value.trim();
+  if (!input) {
+    showYamlText('处理结果将根据左侧内容实时显示', true);
+    setYamlMetrics('');
+    setYamlStatus('neutral', 'info', '等待输入');
+    return;
+  }
+  showYamlTree();
+}
+
+/**
+ * 示例覆盖映射、嵌套列表、多类标量、注释、锚点别名、合并键与块状标量，
+ * 可作为渲染效果的参照。
+ */
+const YAML_SAMPLE = [
+  '# DevKit 部署配置示例',
+  'project:',
+  '  name: DevKit',
+  '  repo: github.com/example/devkit',
+  '  online: true',
+  '  stars: 1280',
+  'pages:',
+  '  branch: main',
+  '  cname: tools.example.com',
+  'build:',
+  '  runner: ubuntu-latest',
+  '  steps:',
+  '    - name: 安装依赖',
+  '      run: npm ci',
+  '    - name: 构建',
+  '      run: npm run build',
+  '  artifacts:',
+  '    - dist/index.html',
+  '    - dist/app.js',
+  'limits:',
+  '  timeout: 30    # 单位秒',
+  '  retries: 3',
+  'env: &defaults',
+  '  NODE_ENV: production',
+  '  LOG_LEVEL: warn',
+  'deploy:',
+  '  <<: *defaults',
+  '  target: gh-pages',
+  'description: >-',
+  '  这是一个块状标量，支持跨行，',
+  '  最终拼接成单行字符串。',
+].join('\n');
+
+function loadYamlSample() {
+  $('#yaml-input').value = YAML_SAMPLE;
+  updateYamlGutter();
+  updateYamlCharCount();
+  refreshYamlOutput();
+}
 
 const unixCronFields = ['minute', 'hour', 'day', 'month', 'week'];
 const springCronFields = ['second', 'minute', 'hour', 'day', 'month', 'week', 'year'];
@@ -845,6 +1169,7 @@ async function generateRsa() {
 function bindEvents() {
   // 防抖包装集中在此处创建，确保被包装的函数都已完成定义。
   const debouncedJsonRefresh = debounce(refreshJsonOutput, 300);
+  const debouncedYamlRefresh = debounce(refreshYamlOutput, 300);
   const debouncedRunRegex = debounce(runRegex, 300);
   const debouncedRenderMarkdown = debounce(renderMarkdown, 300);
   const debouncedDecodeJwt = debounce(decodeJwt, 300);
@@ -869,6 +1194,18 @@ function bindEvents() {
   $('#json-minify').addEventListener('click', minifyJsonInput);
   $('#json-sample').addEventListener('click', () => { $('#json-input').value = '{\n  "tool": "DevKit",\n  "features": ["JSON", "Cron", "bcrypt", "RSA"],\n  "local": true\n}'; updateJsonCount(); });
   $('#json-clear').addEventListener('click', () => { $('#json-input').value = ''; updateJsonCount(); });
+  // 行号与计数即时更新，解析与渲染走防抖；滚动时行号槽跟随。
+  $('#yaml-input').addEventListener('input', updateYamlGutter);
+  $('#yaml-input').addEventListener('input', updateYamlCharCount);
+  $('#yaml-input').addEventListener('input', debouncedYamlRefresh);
+  $('#yaml-input').addEventListener('scroll', syncYamlGutterScroll);
+  // 全展开 / 全折叠共用同一按钮，状态读 aria-pressed。
+  $('#yaml-expand-all').addEventListener('click', (event) => {
+    if (event.currentTarget.getAttribute('aria-pressed') === 'true') collapseAllTreeNodes($('#yaml-output'), $('#yaml-expand-all'));
+    else expandAllTreeNodes($('#yaml-output'), $('#yaml-expand-all'));
+  });
+  $('#yaml-sample').addEventListener('click', loadYamlSample);
+  $('#yaml-clear').addEventListener('click', () => { $('#yaml-input').value = ''; updateYamlGutter(); updateYamlCharCount(); refreshYamlOutput(); });
   $('#cron-parse').addEventListener('click', parseCron);
   $('#cron-input').addEventListener('keydown', (event) => { if (event.key === 'Enter') parseCron(); });
   $('#timestamp-now').addEventListener('click', setTimestampNow);
@@ -909,5 +1246,6 @@ function restoreTheme() {
 
 refreshIcons();
 bindEvents();
+updateYamlGutter(); // 首帧就按内容把行号槽与左内边距校准好
 restoreTheme();
 activateTool(location.hash || '#json');

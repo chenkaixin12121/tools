@@ -101,12 +101,34 @@ button { cursor:pointer; }
 .tree-more { display:block; margin:4px 0 2px; padding:3px 8px; color:var(--accent); border:1px dashed var(--line); border-radius:var(--radius); background:transparent; font:10.5px var(--mono); transition:.15s ease; }
 .tree-more:hover { border-color:var(--accent); background:var(--accent-soft); }
 .tree-node.collapsed > .tree-children { display:none; }
+/* YAML 语法错误的定位视图：带行号、出错行高亮、出错列起的问题区段标底色。 */
+.yaml-errview { height:100%; display:flex; flex-direction:column; }
+.yaml-errreason { margin:0; padding:0 0 9px; color:var(--danger); border-bottom:1px solid var(--line); font:11.5px/1.7 var(--mono); overflow-wrap:anywhere; }
+.yaml-errlines { flex:1; min-height:0; margin:0; padding-top:10px; overflow:auto; font:12.5px/1.9 var(--mono); }
+.yaml-errline { display:flex; gap:14px; white-space:pre; }
+.yaml-errno { flex:0 0 auto; min-width:4ch; color:var(--dim); text-align:right; user-select:none; }
+.yaml-errcode { white-space:pre; color:var(--text); }
+.yaml-errcode mark { padding:1px 0; color:inherit; background:rgba(224,113,75,.22); }
+.yaml-errline.is-error { background:rgba(224,113,75,.07); box-shadow:inset 2px 0 0 var(--danger); }
+.yaml-errline.is-error .yaml-errno { color:var(--danger); }
+.yaml-errline.is-error .yaml-errcode { color:var(--danger); }
+body.light .yaml-errcode mark { background:rgba(168,52,26,.16); }
+body.light .yaml-errline.is-error { background:rgba(168,52,26,.06); }
+/* js-yaml 把行尾未闭合误报到下一行时，真正的问题行给主高亮，上报行只留弱标识。 */
+.yaml-errline.is-report { box-shadow:inset 2px 0 0 var(--line); }
+.yaml-errline.is-report .yaml-errcode { opacity:.72; }
+.yaml-errnote { color:var(--dim); font-style:italic; }
+/* YAML 输入区行号槽：槽绝对定位于左缘，输入区向右让出空间；两者行高一致（12.5px/1.7）。 */
+.yaml-code-editor { position:relative; display:flex; height:var(--editor-h); overflow:hidden; }
+.line-gutter { position:absolute; inset:0 auto 0 0; z-index:1; overflow:hidden; box-sizing:border-box; padding:15px 12px 15px 13px; background:var(--surface-2); border-right:1px solid var(--line); color:var(--dim); font:12.5px/1.7 var(--mono); text-align:right; white-space:pre; user-select:none; pointer-events:none; }
+.yaml-code-editor .code-input { height:100%; min-width:0; flex:1; overflow:auto; }
 /* 左侧输入卡底部有转义/压缩按钮条，减去它的高度。 */
 .json-input-card .code-input { height:calc(var(--editor-h) - 52px); }
 .json-input-actions { display:flex; gap:6px; padding:8px 11px; border-top:1px solid var(--line); background:var(--surface-2); }
 .json-input-actions .secondary-button { min-height:30px; flex:1; padding:0 8px; font-size:11px; }
-/* 全屏编辑：容器铺满视口，JSON 与 Markdown 共用外层规则。 */
+/* 全屏编辑：容器铺满视口，JSON / YAML / Markdown 共用外层规则。 */
 #json:fullscreen,
+#yaml:fullscreen,
 #markdown:fullscreen { width:100vw; height:100vh; overflow:auto; padding:32px clamp(20px, 4vw, 72px) 28px; background:var(--bg); }
 .tool-panel:fullscreen::backdrop { background:var(--bg); }
 #json:fullscreen .editor-layout { min-height:calc(100vh - 230px); }
@@ -118,6 +140,11 @@ button { cursor:pointer; }
 #markdown:fullscreen .editor-card { min-height:calc(100vh - 190px); }
 #markdown:fullscreen .code-input { height:calc(100vh - 236px); }
 #markdown:fullscreen .markdown-output { height:calc(100vh - 236px); overflow:auto; }
+/* YAML 面板结构与 JSON 一样带底部状态行，但输入区无按钮条，输入/输出高度对齐。 */
+#yaml:fullscreen .editor-layout { min-height:calc(100vh - 230px); }
+#yaml:fullscreen .editor-card { min-height:calc(100vh - 230px); }
+#yaml:fullscreen .yaml-code-editor { height:calc(100vh - 268px); }
+#yaml:fullscreen .code-output { height:calc(100vh - 268px); }
 /* Signature 之二：面板底部状态行，取 tmux / vim statusline 的形制。 */
 .footer-actions { display:flex; align-items:center; justify-content:space-between; gap:18px; margin-top:12px; padding:7px 11px; border:1px solid var(--line); border-radius:var(--radius); background:var(--surface); }
 .validation-state { display:flex; align-items:center; gap:7px; font:10.5px var(--mono); letter-spacing:.4px; }

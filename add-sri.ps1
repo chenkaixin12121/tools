@@ -19,7 +19,8 @@ $backupPath = Join-Path $PSScriptRoot 'index.html.sri-backup'
 # 字节不固定，因此无法也不应该加 SRI，这里不处理它。
 $targets = @(
   'https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js',
-  'https://cdn.jsdelivr.net/npm/bcryptjs@2.4.3/dist/bcrypt.min.js'
+  'https://cdn.jsdelivr.net/npm/bcryptjs@2.4.3/dist/bcrypt.min.js',
+  'https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js'
 )
 
 function Write-Step($msg) { Write-Host "`n==> $msg" -ForegroundColor Cyan }
@@ -50,7 +51,7 @@ foreach ($url in $targets) {
     throw "index.html 里找不到 $url，请确认文件是否正确。"
   }
 }
-Write-Ok '两个 CDN 标签均已找到'
+Write-Ok '三个 CDN 标签均已找到'
 
 # --- 第 2 步：下载并计算 sha384 ----------------------------------------------
 Write-Step '下载资源并计算 SHA-384'
@@ -156,8 +157,9 @@ foreach ($url in $targets) {
 # 属性不该出现重复，重复说明正则匹配有误。
 foreach ($attr in @('integrity=', 'crossorigin=')) {
   $n = ([regex]::Matches($verify, [regex]::Escape($attr))).Count
-  # crossorigin 另有一处在 fonts.gstatic 的 preconnect 上，属正常。
-  $limit = if ($attr -eq 'crossorigin=') { 3 } else { 2 }
+  # crossorigin 在 fonts.gstatic 的 preconnect 上是裸属性（不含等号，不计入），
+  # 因此这里给 4 留 1 个余量；integrity 三个 script 各一处，恰好 3。
+  $limit = if ($attr -eq 'crossorigin=') { 4 } else { 3 }
   if ($n -gt $limit) {
     Write-Warn "$attr 出现 $n 次，超出预期的 $limit 次"
     $ok = $false
@@ -179,14 +181,15 @@ $summary = @"
    执行下面这行恢复，然后把报错发出来：
      Copy-Item '$backupPath' '$htmlPath' -Force
 
-2. 确认图标显示正常（lucide 生效）、bcrypt 工具能算出哈希（bcryptjs 生效）。
+2. 确认图标显示正常（lucide 生效）、bcrypt 工具能算出哈希（bcryptjs 生效）、
+   YAML 工具能出结构树（js-yaml 生效）。
 
 3. 都正常后删掉备份并提交：
      Remove-Item '$backupPath'
      git add index.html
      git commit -m "security: 为 CDN 脚本添加 SRI 完整性校验"
 
-注意：以后升级 lucide 或 bcryptjs 的版本号，必须重新跑一次本脚本，
+注意：以后新增或升级 lucide、bcryptjs、js-yaml 的版本号，必须重新跑一次本脚本，
       旧哈希对不上新文件，浏览器会直接拒绝执行脚本。
 "@
 Write-Host $summary -ForegroundColor Green

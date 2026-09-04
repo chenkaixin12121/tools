@@ -19,6 +19,7 @@ BACKUP=index.html.sri-backup
 URLS=(
   "https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"
   "https://cdn.jsdelivr.net/npm/bcryptjs@2.4.3/dist/bcrypt.min.js"
+  "https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"
 )
 
 step() { printf '\n==> %s\n' "$1"; }
@@ -33,7 +34,7 @@ ok "行数 $(wc -l < "$HTML")，字节 $(wc -c < "$HTML")"
 for u in "${URLS[@]}"; do
   grep -qF "$u" "$HTML" || { echo "$HTML 里找不到 $u" >&2; exit 1; }
 done
-ok "两个 CDN 标签均已找到"
+ok "三个 CDN 标签均已找到"
 
 # --- 第 2 步：下载并计算 sha384 ----------------------------------------------
 step "下载资源并计算 SHA-384"
@@ -78,10 +79,13 @@ ok "已备份到 $BACKUP"
 python_bin=$(command -v python3 || command -v python || true)
 [ -n "$python_bin" ] || { echo "需要 python 来做安全替换，Git Bash 通常自带；或改用 add-sri.ps1。" >&2; exit 1; }
 
-"$python_bin" - "$HTML" "${URLS[0]}" "${HASHES[${URLS[0]}]}" "${URLS[1]}" "${HASHES[${URLS[1]}]}" <<'PYEOF'
+# 构造「url digest」交替的扁平参数序列，再交给 python 两两配对。
+args=("$HTML")
+for url in "${URLS[@]}"; do args+=("$url" "${HASHES[$url]}"); done
+"$python_bin" - "${args[@]}" <<'PYEOF'
 import re, sys
 path = sys.argv[1]
-pairs = [(sys.argv[2], sys.argv[3]), (sys.argv[4], sys.argv[5])]
+pairs = [(sys.argv[i], sys.argv[i + 1]) for i in range(2, len(sys.argv), 2)]
 
 with open(path, encoding='utf-8') as f:
     html = f.read()
@@ -124,12 +128,12 @@ for u in "${URLS[@]}"; do
   fi
 done
 
-# integrity 应恰好 2 次；crossorigin= 也应为 2 次
-# （第 9 行 preconnect 上的 crossorigin 是裸属性，不含等号，不计入）。
+# integrity 应恰好 3 次；crossorigin= 也应为 3 次
+# （preconnect 上的 crossorigin 是裸属性，不含等号，不计入）。
 n_int=$(grep -o 'integrity=' "$HTML" | wc -l)
 n_cors=$(grep -o 'crossorigin=' "$HTML" | wc -l)
-[ "$n_int" -eq 2 ]  || { echo "    integrity= 出现 $n_int 次，预期 2 次" >&2; fail=1; }
-[ "$n_cors" -eq 2 ] || { echo "    crossorigin= 出现 $n_cors 次，预期 2 次" >&2; fail=1; }
+[ "$n_int" -eq 3 ]  || { echo "    integrity= 出现 $n_int 次，预期 3 次" >&2; fail=1; }
+[ "$n_cors" -eq 3 ] || { echo "    crossorigin= 出现 $n_cors 次，预期 3 次" >&2; fail=1; }
 
 if [ "$fail" -ne 0 ]; then
   printf '\n校验未通过。恢复备份：\n  cp %s %s\n' "$BACKUP" "$HTML" >&2
@@ -144,12 +148,13 @@ cat <<EOF
    若出现 "Failed to find a valid digest ... integrity" 说明哈希不匹配，
    执行 cp $BACKUP $HTML 恢复，然后把报错发出来。
 
-2. 确认图标显示正常（lucide 生效）、bcrypt 面板能算出哈希（bcryptjs 生效）。
+2. 确认图标显示正常（lucide 生效）、bcrypt 面板能算出哈希（bcryptjs 生效）、
+   YAML 工具能出结构树（js-yaml 生效）。
 
 3. 都正常后删掉备份并提交：
      rm $BACKUP
      git add index.html
      git commit -m "security: 为 CDN 脚本添加 SRI 完整性校验"
 
-注意：以后升级 lucide 或 bcryptjs 版本号，必须重新跑一次本脚本。
+注意：以后新增或升级 lucide、bcryptjs、js-yaml 的版本号，必须重新跑一次本脚本。
 EOF

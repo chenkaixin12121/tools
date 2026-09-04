@@ -21,6 +21,7 @@
         <nav class="tool-nav" aria-label="工具导航">
           <p class="nav-label">常用工具</p>
           <a class="nav-item active" href="#json" data-tool="json"><i data-lucide="braces"></i><span>JSON 工具</span></a>
+          <a class="nav-item" href="#yaml" data-tool="yaml"><i data-lucide="file-code-2"></i><span>YAML 工具</span></a>
           <a class="nav-item" href="#cron" data-tool="cron"><i data-lucide="timer-reset"></i><span>Cron 在线解析</span></a>
           <a class="nav-item" href="#timestamp" data-tool="timestamp"><i data-lucide="calendar-clock"></i><span>时间戳转换</span></a>
           <a class="nav-item" href="#regex" data-tool="regex"><i data-lucide="scan-search"></i><span>正则表达式</span></a>
@@ -80,6 +81,37 @@
           <div class="footer-actions">
             <span class="validation-state neutral" id="json-status"><i data-lucide="info"></i><span>等待输入</span></span>
             <span class="status-metrics" id="json-metrics"></span>
+          </div>
+        </section>
+
+        <section class="tool-panel" id="yaml" data-title="YAML 工具" hidden>
+          <div class="panel-heading">
+            <div>
+              <h2>YAML 校验与树状查看</h2>
+              <p>校验 YAML 语法，解析结果以可折叠的树结构展示。支持锚点别名、多行文本等 YAML 特性，缩进请使用空格。</p>
+            </div>
+            <div class="action-row">
+              <button class="secondary-button" id="yaml-fullscreen" type="button" aria-pressed="false"><i data-lucide="maximize"></i>全屏编辑</button>
+              <button class="secondary-button" id="yaml-sample" type="button"><i data-lucide="file-text"></i>示例</button>
+              <button class="secondary-button" id="yaml-clear" type="button"><i data-lucide="trash-2"></i>清空</button>
+            </div>
+          </div>
+          <div class="editor-layout">
+            <div class="editor-card">
+              <div class="editor-header"><span><i data-lucide="file-code-2"></i>输入 YAML</span><span class="editor-header-actions"><span class="character-count" id="yaml-count">0 字符</span><button class="copy-text" type="button" data-copy="yaml-input">复制</button></span></div>
+              <div class="yaml-code-editor">
+                <div class="line-gutter" id="yaml-gutter" aria-hidden="true">1</div>
+                <textarea id="yaml-input" class="code-input" wrap="off" spellcheck="false" placeholder='例如：&#10;name: DevKit&#10;features:&#10;  - yaml&#10;  - json'></textarea>
+              </div>
+            </div>
+            <div class="editor-card output-card">
+              <div class="editor-header"><span><i data-lucide="braces"></i>结构树</span><span class="editor-header-actions"><button class="copy-text" id="yaml-expand-all" type="button" aria-pressed="false" disabled>全展开</button><button class="copy-text" type="button" data-copy="yaml-output">复制</button></span></div>
+              <div id="yaml-output" class="code-output json-output placeholder-output">处理结果将根据左侧内容实时显示</div>
+            </div>
+          </div>
+          <div class="footer-actions">
+            <span class="validation-state neutral" id="yaml-status"><i data-lucide="info"></i><span>等待输入</span></span>
+            <span class="status-metrics" id="yaml-metrics"></span>
           </div>
         </section>
 
@@ -208,11 +240,12 @@
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <!--
       CDN 脚本已启用 SRI 完整性校验。
-      升级 lucide 或 bcryptjs 版本号后必须重新运行 add-sri.ps1 重算 integrity，
-      否则旧哈希与新文件不匹配，浏览器会拒绝执行脚本。
+      新增或升级 lucide、bcryptjs、js-yaml 后必须重新运行 add-sri.sh 或 add-sri.ps1
+      重算 integrity，否则旧哈希与新文件不匹配，浏览器会拒绝执行脚本。
     -->
     <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" integrity="sha384-uTYyvsSSUZeaPhb5RbKlQa0zY/WpX/QHfvg2mczXyBQOpkWPEDy9lczyp+w7SKXu" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="https://cdn.jsdelivr.net/npm/bcryptjs@2.4.3/dist/bcrypt.min.js" integrity="sha384-qGFE4FIJLgCFuYs3nzg39XpCtvT5AZUhaBdjB3e1+vpKQa03AkyWOyBSFb9OcQ/g" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js" integrity="sha384-+pxiN6T7yvpryuJmE1gM9PX7yQit15auDb+ZwwvJOd/4be2Cie5/IuVXgQb/S9du" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="app.js"></script>
   </body>
 </html>
