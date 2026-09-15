@@ -8,6 +8,7 @@ const toolInitializers = {
   timestamp: () => !$('#timestamp-input').value && setTimestampNow(),
   regex: runRegex,
   markdown: renderMarkdown,
+  codec: renderCodec,
   jwt: decodeJwt,
   password: () => $('#password-output').classList.contains('placeholder-output') && generatePassword()
 };
@@ -738,8 +739,8 @@ function loadYamlSample() {
   refreshYamlOutput();
 }
 
-const unixCronFields = ['minute', 'hour', 'day', 'month', 'week'];
-const springCronFields = ['second', 'minute', 'hour', 'day', 'month', 'week', 'year'];
+const linuxCronFields = ['minute', 'hour', 'day', 'month', 'week'];
+const quartzCronFields = ['second', 'minute', 'hour', 'day', 'month', 'week', 'year'];
 const cronNames = {
   second: '秒', minute: '分钟', hour: '小时', day: '日期', month: '月份', week: '星期', year: '年份',
 };
@@ -788,8 +789,8 @@ function describePart(value, label) {
   return value.replaceAll(',', '、');
 }
 
-function humanCron(parts, isSpring) {
-  if (isSpring) {
+function humanCron(parts, isQuartz) {
+  if (isQuartz) {
     const [second, minute, hour, day, month, week] = parts;
     if (second === '0' && /^\*\/\d+$/.test(hour) && /^\d+$/.test(minute) && day === '*' && month === '*' && week === '?') {
       return `每 ${hour.slice(2)} 小时的第 ${minute} 分执行（从 00:${minute.padStart(2, '0')} 开始）`;
@@ -809,9 +810,9 @@ function formatDate(date) {
   return `${full.replaceAll('/', '-')} ${weekday}`;
 }
 
-function nextRuns(values, isSpring) {
-  const seconds = isSpring ? values.second : new Set([0]);
-  const years = isSpring && values.year ? values.year : null;
+function nextRuns(values, isQuartz) {
+  const seconds = isQuartz ? values.second : new Set([0]);
+  const years = isQuartz && values.year ? values.year : null;
   // 避免修改传入的 Set（副作用），复制一份后再操作。
   const week = new Set(values.week);
   if (week.has(7)) week.add(0);
@@ -858,19 +859,22 @@ function parseCron() {
     const annotation = rawInput.match(/cron\s*=\s*["']([^"']+)["']/i);
     const raw = (annotation ? annotation[1] : rawInput).replace(/^["']|["']$/g, '');
     const parts = raw.split(/\s+/);
-    const isSpring = parts.length === 6 || parts.length === 7;
-    if (!isSpring && parts.length !== 5) throw new Error('请输入五段 Unix Cron 或六、七段 Spring Cron');
-    const fieldKeys = isSpring ? springCronFields.slice(0, parts.length) : unixCronFields;
+    const isQuartz = parts.length === 6 || parts.length === 7;
+    if (!isQuartz && parts.length !== 5) throw new Error('请输入五段 Linux Cron 或六、七段 Quartz Cron');
+    const fieldKeys = isQuartz ? quartzCronFields.slice(0, parts.length) : linuxCronFields;
     const values = {};
     const normalizedParts = parts.map((part, index) => normalizeCronPart(part, fieldKeys[index]));
     normalizedParts.forEach((part, index) => { values[fieldKeys[index]] = parsePart(part, ...ranges[fieldKeys[index]]); });
     // 展示本机真实时区，与 nextRuns 的计算基准一致。
     $('#cron-timezone').textContent = Intl.DateTimeFormat().resolvedOptions().timeZone || '本机时区';
-    $('#cron-human').textContent = humanCron(parts, isSpring);
+    // 明确标注识别出的 Cron 格式：Linux 5 位或 Quartz 6/7 位。
+    $('#cron-format').textContent = isQuartz ? `Quartz Cron（${parts.length} 位）` : 'Linux Cron（5 位）';
+    $('#cron-human').textContent = humanCron(parts, isQuartz);
     $('#cron-fields').innerHTML = parts.map((part, index) => `<div class="cron-field"><span>${cronNames[fieldKeys[index]]}</span><b>${part}</b><p>${describePart(part, cronNames[fieldKeys[index]])}</p></div>`).join('');
-    const runs = nextRuns(values, isSpring);
+    const runs = nextRuns(values, isQuartz);
     list.innerHTML = runs.length ? runs.map((run) => `<li>${formatDate(run)}</li>`).join('') : '<li>未来一年内没有匹配的执行时间</li>';
   } catch (error) {
+    $('#cron-format').textContent = '无法识别格式';
     $('#cron-human').textContent = `无法解析：${error.message}`;
     $('#cron-fields').innerHTML = '';
     list.innerHTML = '<li>请检查表达式格式与字段范围</li>';
@@ -881,19 +885,92 @@ function pad(value) {
   return String(value).padStart(2, '0');
 }
 
-function toDateTimeLocalValue(date) {
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
 function formatLocalDate(date) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
+/* ── 时间戳工具的时区支持 ── */
+
+/** 计算 timeZone 在 date 时刻相对 UTC 的偏移（毫秒），供本地时间与 UTC 互转。 */
+function getTimeZoneOffsetMs(date, timeZone) {
+  // 同时接受 Date 对象与数字时间戳，便于 zonedTimeToUtc 传入猜测值。
+  const time = date instanceof Date ? date.getTime() : Number(date);
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone, hour12: false,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+  const parts = {};
+  for (const part of dtf.formatToParts(time)) parts[part.type] = part.value;
+  const asUTC = Date.UTC(
+    Number(parts.year),
+    Number(parts.month) - 1,
+    Number(parts.day),
+    parts.hour === '24' ? 0 : Number(parts.hour),
+    Number(parts.minute),
+    Number(parts.second),
+  );
+  return asUTC - time;
+}
+
+/** 时间戳 → 所选时区的「墙上时间」，用于结果展示。 */
+function formatDateInTimeZone(date, timeZone) {
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  }).format(date);
+}
+
+/** 时间戳 → datetime-local 值（所选时区的墙上时间），用于回填日期输入框。 */
+function toDateTimeLocalValueInTimeZone(date, timeZone) {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone, hour12: false,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit',
+  });
+  const parts = {};
+  for (const part of dtf.formatToParts(date)) parts[part.type] = part.value;
+  const hour = parts.hour === '24' ? '00' : parts.hour;
+  return `${parts.year}-${parts.month}-${parts.day}T${hour}:${parts.minute}`;
+}
+
+/**
+ * datetime-local 值（所选时区的墙上时间）→ UTC 时间戳。
+ * 先把墙上时间当作 UTC 得到猜测时间戳，再用该时刻的时区偏移修正一次；
+ * 除极端的夏令时切换边界外，一次修正已足够准确。
+ */
+function zonedTimeToUtc(dateTimeLocal, timeZone) {
+  const [datePart, timePart] = dateTimeLocal.split('T');
+  const [year, month, day] = datePart.split('-').map(Number);
+  const [hour, minute] = (timePart || '00:00').split(':').map(Number);
+  const guess = Date.UTC(year, month - 1, day, hour, minute);
+  return guess - getTimeZoneOffsetMs(guess, timeZone);
+}
+
+/** 填充时区下拉：完整 IANA 时区列表，带当前 UTC 偏移，默认选中本机时区。 */
+function populateTimezones() {
+  const select = $('#timestamp-timezone');
+  if (!select) return;
+  const local = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  // 旧浏览器无 supportedValuesOf 时退路到 UTC + 本机时区，避免下拉为空。
+  const zones = Intl.supportedValuesOf ? Intl.supportedValuesOf('timeZone') : [...new Set(['UTC', local])];
+  const now = new Date();
+  select.innerHTML = zones.map((zone) => {
+    const offsetMinutes = Math.round(getTimeZoneOffsetMs(now, zone) / 60000);
+    const sign = offsetMinutes >= 0 ? '+' : '-';
+    const abs = Math.abs(offsetMinutes);
+    const label = `(UTC${sign}${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}) ${zone}`;
+    return `<option value="${zone}">${label}</option>`;
+  }).join('');
+  if (zones.includes(local)) select.value = local;
+}
+
 function setTimestampNow() {
   const now = new Date();
+  const timeZone = $('#timestamp-timezone').value;
   $('#timestamp-input').value = String(now.getTime());
   $('#timestamp-unit').value = 'ms';
-  $('#date-input').value = toDateTimeLocalValue(now);
+  $('#date-input').value = toDateTimeLocalValueInTimeZone(now, timeZone);
   convertTimestampToDate();
   convertDateToTimestamp();
 }
@@ -901,6 +978,7 @@ function setTimestampNow() {
 function convertTimestampToDate() {
   const raw = $('#timestamp-input').value.trim();
   const result = $('#timestamp-date-result strong');
+  const timeZone = $('#timestamp-timezone').value;
   const timestamp = Number(raw) * ($('#timestamp-unit').value === 's' ? 1000 : 1);
   if (!raw || !Number.isFinite(timestamp)) {
     result.textContent = '请输入有效的数字时间戳';
@@ -908,14 +986,20 @@ function convertTimestampToDate() {
   }
   const date = new Date(timestamp);
   if (Number.isNaN(date.getTime())) { result.textContent = '时间戳超出日期范围'; return; }
-  result.textContent = formatLocalDate(date);
-  $('#date-input').value = toDateTimeLocalValue(date);
+  result.textContent = formatDateInTimeZone(date, timeZone);
+  $('#date-input').value = toDateTimeLocalValueInTimeZone(date, timeZone);
 }
 
 function convertDateToTimestamp() {
   const raw = $('#date-input').value;
-  const timestamp = new Date(raw).getTime();
-  if (!raw || Number.isNaN(timestamp)) {
+  if (!raw) {
+    $('#timestamp-ms-result').textContent = '请选择有效日期时间';
+    $('#timestamp-s-result').textContent = '秒：--';
+    return;
+  }
+  const timeZone = $('#timestamp-timezone').value;
+  const timestamp = zonedTimeToUtc(raw, timeZone);
+  if (!Number.isFinite(timestamp)) {
     $('#timestamp-ms-result').textContent = '请选择有效日期时间';
     $('#timestamp-s-result').textContent = '秒：--';
     return;
@@ -1029,6 +1113,167 @@ const MARKDOWN_SAMPLE = [
 function loadMarkdownSample() {
   $('#markdown-input').value = MARKDOWN_SAMPLE;
   renderMarkdown();
+}
+
+/* ── 编码解码工具 ── */
+
+/**
+ * 编码模式表：select 选项值 → 说明文案与转换函数。
+ * 解码类操作在输入非法时抛 Error，由 renderCodec 统一捕获并展示。
+ */
+const CODEC_MODES = {
+  'url-encode': { label: 'URL 编码（encodeURIComponent）', run: (text) => encodeURIComponent(text) },
+  'url-decode': { label: 'URL 解码（decodeURIComponent）', run: decodeUriComponentSafe },
+  'base64-encode': { label: 'Base64 编码（UTF-8）', run: encodeBase64Utf8 },
+  'base64-decode': { label: 'Base64 解码（UTF-8）', run: decodeBase64Utf8 },
+  'unicode-escape': { label: 'Unicode 转义（中文 → \\uXXXX）', run: unicodeEscape },
+  'unicode-unescape': { label: 'Unicode 还原（\\uXXXX → 中文）', run: unicodeUnescape },
+  'html-encode': { label: 'HTML 实体编码（& < > " \'）', run: encodeHtmlEntities },
+  'html-decode': { label: 'HTML 实体解码', run: decodeHtmlEntities },
+};
+
+// 交换输入输出时，同时把模式切到对应的反向操作，便于立即解码回来验证。
+const CODEC_REVERSE = {
+  'url-encode': 'url-decode', 'url-decode': 'url-encode',
+  'base64-encode': 'base64-decode', 'base64-decode': 'base64-encode',
+  'unicode-escape': 'unicode-unescape', 'unicode-unescape': 'unicode-escape',
+  'html-encode': 'html-decode', 'html-decode': 'html-encode',
+};
+
+function decodeUriComponentSafe(text) {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    throw new Error('URL 解码失败，请检查是否存在未转义的 % 或非法字节序列');
+  }
+}
+
+/**
+ * Base64 编码（UTF-8）。分块转二进制串，避免长文本一次 spread 撑爆调用栈。
+ * btoa 只能处理 Latin-1，中文需先经 TextEncoder 转 UTF-8 字节再编码。
+ */
+function encodeBase64Utf8(text) {
+  const bytes = new TextEncoder().encode(text);
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+/** Base64 解码（UTF-8），容错接受 base64url（- _）与换行空白。 */
+function decodeBase64Utf8(text) {
+  const cleaned = text.replace(/\s+/g, '');
+  if (!cleaned) return '';
+  const normalized = cleaned.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(cleaned.length / 4) * 4, '=');
+  try {
+    const bytes = Uint8Array.from(atob(normalized), (character) => character.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  } catch {
+    throw new Error('Base64 解码失败，请检查输入是否为合法的 Base64 字符串');
+  }
+}
+
+/** Unicode 转义：非 ASCII 字符转 \uXXXX，超过 BMP 的码点（emoji）拆成代理对。 */
+function unicodeEscape(text) {
+  let result = '';
+  for (const character of text) {
+    const code = character.codePointAt(0);
+    if (code <= 0x7f) { result += character; continue; }
+    if (code <= 0xffff) { result += `\\u${code.toString(16).padStart(4, '0').toUpperCase()}`; continue; }
+    const offset = code - 0x10000;
+    const high = 0xd800 + (offset >> 10);
+    const low = 0xdc00 + (offset & 0x3ff);
+    result += `\\u${high.toString(16).toUpperCase()}\\u${low.toString(16).toUpperCase()}`;
+  }
+  return result;
+}
+
+/** Unicode 还原：支持 \uXXXX 与 \u{XXXXXX} 两种写法，非法码点原样保留。 */
+function unicodeUnescape(text) {
+  return text.replace(/\\u\{([0-9a-fA-F]{1,6})\}|\\u([0-9a-fA-F]{4})/g, (match, braced, plain) => {
+    const code = braced ? Number.parseInt(braced, 16) : Number.parseInt(plain, 16);
+    if (!Number.isFinite(code)) return match;
+    try {
+      return String.fromCodePoint(code);
+    } catch {
+      return match;
+    }
+  });
+}
+
+/** HTML 实体编码：转义会破坏 HTML 结构的五个字符。 */
+function encodeHtmlEntities(text) {
+  return text.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
+}
+
+/** HTML 实体解码：借 textarea 的 HTML 解析能力，命名实体与数字实体都能还原。 */
+function decodeHtmlEntities(text) {
+  const textarea = document.createElement('textarea');
+  textarea.innerHTML = text;
+  return textarea.value;
+}
+
+/** 字符数即时反馈，与防抖的输出渲染分开（与 JSON 面板保持一致）。 */
+function updateCodecCharCount() {
+  $('#codec-count').textContent = `${$('#codec-input').value.length} 字符`;
+}
+
+function renderCodec() {
+  const input = $('#codec-input').value;
+  const output = $('#codec-output');
+  const mode = CODEC_MODES[$('#codec-mode').value];
+  $('#codec-hint').textContent = mode.label;
+  output.classList.remove('is-error');
+  if (!input) {
+    setOutput(output, '结果将实时显示在这里', true);
+    return;
+  }
+  try {
+    const result = mode.run(input);
+    if (result === '') {
+      // 解码出空串时显式占位，避免和「等待输入」混淆。
+      output.textContent = '（空结果）';
+      output.classList.add('placeholder-output');
+    } else {
+      setOutput(output, result);
+    }
+  } catch (error) {
+    output.textContent = error.message;
+    output.classList.remove('placeholder-output');
+    output.classList.add('is-error');
+  }
+}
+
+/** 交换输入输出并自动切到反向模式，方便编码后立即解码回来验证。 */
+function swapCodec() {
+  const input = $('#codec-input');
+  const output = $('#codec-output');
+  if (output.classList.contains('placeholder-output') || output.classList.contains('is-error')) {
+    showToast('当前没有可交换的结果');
+    return;
+  }
+  input.value = output.textContent;
+  const reverse = CODEC_REVERSE[$('#codec-mode').value];
+  if (reverse) $('#codec-mode').value = reverse;
+  updateCodecCharCount();
+  renderCodec();
+}
+
+/** 示例兼顾中英文与 URL 查询参数，能体现四种编码的差异。 */
+const CODEC_SAMPLE = 'DevKit 中文编码 https://example.com/搜索?q=你好&type=1';
+
+function loadCodecSample() {
+  $('#codec-input').value = CODEC_SAMPLE;
+  updateCodecCharCount();
+  renderCodec();
+}
+
+function clearCodec() {
+  $('#codec-input').value = '';
+  updateCodecCharCount();
+  renderCodec();
 }
 
 function decodeBase64Url(value) {
@@ -1173,6 +1418,7 @@ function bindEvents() {
   const debouncedRunRegex = debounce(runRegex, 300);
   const debouncedRenderMarkdown = debounce(renderMarkdown, 300);
   const debouncedDecodeJwt = debounce(decodeJwt, 300);
+  const debouncedRenderCodec = debounce(renderCodec, 300);
 
   window.addEventListener('hashchange', () => activateTool(location.hash));
   $$('.nav-item').forEach((item) => item.addEventListener('click', () => window.setTimeout(() => activateTool(location.hash), 0)));
@@ -1211,6 +1457,11 @@ function bindEvents() {
   $('#timestamp-now').addEventListener('click', setTimestampNow);
   $('#timestamp-to-date').addEventListener('click', convertTimestampToDate);
   $('#date-to-timestamp').addEventListener('click', convertDateToTimestamp);
+  // 切换时区后，已有的输入按新时区重新换算。
+  $('#timestamp-timezone').addEventListener('change', () => {
+    if ($('#timestamp-input').value) convertTimestampToDate();
+    if ($('#date-input').value) convertDateToTimestamp();
+  });
   $('#regex-run').addEventListener('click', runRegex);
   $('#regex-pattern').addEventListener('input', debouncedRunRegex);
   $('#regex-text').addEventListener('input', debouncedRunRegex);
@@ -1219,6 +1470,12 @@ function bindEvents() {
   $('#markdown-input').addEventListener('input', updateMarkdownCharCount);
   $('#markdown-input').addEventListener('input', debouncedRenderMarkdown);
   $('#markdown-sample').addEventListener('click', loadMarkdownSample);
+  $('#codec-input').addEventListener('input', updateCodecCharCount);
+  $('#codec-input').addEventListener('input', debouncedRenderCodec);
+  $('#codec-mode').addEventListener('change', renderCodec);
+  $('#codec-sample').addEventListener('click', loadCodecSample);
+  $('#codec-swap').addEventListener('click', swapCodec);
+  $('#codec-clear').addEventListener('click', clearCodec);
   $('#bcrypt-rounds').addEventListener('input', (event) => { $('#rounds-value').textContent = event.target.value; });
   $('#toggle-password').addEventListener('click', togglePassword);
   $('#bcrypt-generate').addEventListener('click', generateBcrypt);
@@ -1246,6 +1503,7 @@ function restoreTheme() {
 
 refreshIcons();
 bindEvents();
+populateTimezones(); // 时间戳面板的时区下拉需在 activateTool 之前就绪
 updateYamlGutter(); // 首帧就按内容把行号槽与左内边距校准好
 restoreTheme();
 activateTool(location.hash || '#json');

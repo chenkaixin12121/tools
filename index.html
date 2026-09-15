@@ -26,6 +26,7 @@
           <a class="nav-item" href="#timestamp" data-tool="timestamp"><i data-lucide="calendar-clock"></i><span>时间戳转换</span></a>
           <a class="nav-item" href="#regex" data-tool="regex"><i data-lucide="scan-search"></i><span>正则表达式</span></a>
           <a class="nav-item" href="#markdown" data-tool="markdown"><i data-lucide="notebook-pen"></i><span>Markdown 预览</span></a>
+          <a class="nav-item" href="#codec" data-tool="codec"><i data-lucide="binary"></i><span>编码与解码</span></a>
           <p class="nav-label nav-label-gap">安全加密</p>
           <a class="nav-item" href="#bcrypt" data-tool="bcrypt"><i data-lucide="key-round"></i><span>bcrypt 生成器</span></a>
           <a class="nav-item" href="#rsa" data-tool="rsa"><i data-lucide="shield-check"></i><span>RSA 密钥生成</span></a>
@@ -117,7 +118,7 @@
 
         <section class="tool-panel" id="cron" data-title="Cron 在线解析" hidden>
           <div class="panel-heading">
-            <div><h2>Cron 在线解析</h2><p>输入标准五段 Cron 表达式，查看每个字段的含义与下次执行时间。</p></div>
+            <div><h2>Cron 在线解析</h2><p>自动识别 Linux（5 位）与 Quartz（6/7 位）Cron，查看字段含义与下次执行时间。</p></div>
           </div>
           <div class="cron-entry">
             <label for="cron-input">Cron 表达式</label>
@@ -125,10 +126,10 @@
               <input id="cron-input" class="cron-input" value="0 55 */2 * * ?" spellcheck="false" aria-describedby="cron-help" />
               <button class="primary-button" id="cron-parse" type="button"><i data-lucide="play"></i>解析</button>
             </div>
-            <p id="cron-help" class="input-hint">Spring 格式：秒 分 时 日 月 周，例如 <code>0 55 */2 * * ?</code></p>
+            <p id="cron-help" class="input-hint">Linux Cron（5 位）：分 时 日 月 周；Quartz Cron（6/7 位）：秒 分 时 日 月 周 [年]，例如 <code>0 55 */2 * * ?</code></p>
           </div>
           <div class="cron-result">
-            <div class="human-cron"><p class="result-label">表达式说明</p><strong id="cron-human">每周一至周五的 09:00 执行</strong></div>
+            <div class="human-cron"><p class="result-label">表达式说明</p><span class="cron-format-badge" id="cron-format">等待解析</span><strong id="cron-human">每周一至周五的 09:00 执行</strong></div>
             <div class="next-runs">
               <div class="result-heading"><p class="result-label">接下来 5 次执行</p><span id="cron-timezone">本机时区</span></div>
               <ol id="cron-runs" class="run-list"></ol>
@@ -138,16 +139,22 @@
         </section>
 
         <section class="tool-panel" id="timestamp" data-title="时间戳转换" hidden>
-          <div class="panel-heading"><div><h2>时间戳转换</h2><p>在 Unix 时间戳与本地日期时间之间快速转换。</p></div><button class="secondary-button" id="timestamp-now" type="button"><i data-lucide="clock-3"></i>使用当前时间</button></div>
+          <div class="panel-heading">
+            <div><h2>时间戳转换</h2><p>在 Unix 时间戳与日期时间之间转换，可切换任意时区。</p></div>
+            <div class="action-row">
+              <label class="timezone-field" for="timestamp-timezone"><span>时区</span><select id="timestamp-timezone" aria-label="选择时区"></select></label>
+              <button class="secondary-button" id="timestamp-now" type="button"><i data-lucide="clock-3"></i>使用当前时间</button>
+            </div>
+          </div>
           <div class="timestamp-grid">
             <div class="form-card">
               <label for="timestamp-input">Unix 时间戳</label>
               <div class="inline-field"><input id="timestamp-input" inputmode="numeric" placeholder="例如：1724201700000" /><select id="timestamp-unit" aria-label="时间戳单位"><option value="ms">毫秒</option><option value="s">秒</option></select></div>
               <button class="primary-button wide-button" id="timestamp-to-date" type="button"><i data-lucide="arrow-down-up"></i>转换为日期</button>
-              <div class="timestamp-result" id="timestamp-date-result"><span>本地日期时间</span><strong>等待转换</strong></div>
+              <div class="timestamp-result" id="timestamp-date-result"><span>所选时区时间</span><strong>等待转换</strong></div>
             </div>
             <div class="form-card">
-              <label for="date-input">日期时间</label>
+              <label for="date-input">日期时间（按所选时区）</label>
               <input id="date-input" type="datetime-local" />
               <button class="primary-button wide-button" id="date-to-timestamp" type="button"><i data-lucide="arrow-down-up"></i>转换为时间戳</button>
               <div class="timestamp-result"><span>Unix 时间戳</span><strong id="timestamp-ms-result">等待转换</strong><code id="timestamp-s-result">秒：--</code></div>
@@ -178,6 +185,51 @@
           <div class="editor-layout">
             <div class="editor-card"><div class="editor-header"><span><i data-lucide="square-pen"></i>Markdown</span><span class="character-count" id="markdown-count">0 字符</span></div><textarea id="markdown-input" class="code-input" spellcheck="false" placeholder="# 开始书写 Markdown"></textarea></div>
             <div class="editor-card output-card"><div class="editor-header"><span><i data-lucide="eye"></i>预览</span></div><article id="markdown-output" class="markdown-output placeholder-output">预览内容将显示在这里</article></div>
+          </div>
+        </section>
+
+        <section class="tool-panel" id="codec" data-title="编码与解码" hidden>
+          <div class="panel-heading">
+            <div>
+              <h2>编码与解码</h2>
+              <p>URL、Base64、Unicode、HTML 实体等常用编码的相互转换，结果实时输出。</p>
+            </div>
+            <div class="action-row">
+              <button class="secondary-button" id="codec-sample" type="button"><i data-lucide="file-text"></i>示例</button>
+              <button class="secondary-button" id="codec-swap" type="button"><i data-lucide="arrow-down-up"></i>交换</button>
+              <button class="secondary-button" id="codec-clear" type="button"><i data-lucide="trash-2"></i>清空</button>
+            </div>
+          </div>
+          <div class="codec-bar">
+            <select id="codec-mode" class="codec-select" aria-label="选择编码方式">
+              <optgroup label="URL">
+                <option value="url-encode">URL 编码</option>
+                <option value="url-decode">URL 解码</option>
+              </optgroup>
+              <optgroup label="Base64">
+                <option value="base64-encode">Base64 编码</option>
+                <option value="base64-decode">Base64 解码</option>
+              </optgroup>
+              <optgroup label="Unicode">
+                <option value="unicode-escape">Unicode 转义</option>
+                <option value="unicode-unescape">Unicode 还原</option>
+              </optgroup>
+              <optgroup label="HTML 实体">
+                <option value="html-encode">HTML 实体编码</option>
+                <option value="html-decode">HTML 实体解码</option>
+              </optgroup>
+            </select>
+            <p class="codec-hint" id="codec-hint">URL 编码（encodeURIComponent）</p>
+          </div>
+          <div class="editor-layout">
+            <div class="editor-card">
+              <div class="editor-header"><span><i data-lucide="text"></i>输入</span><span class="editor-header-actions"><span class="character-count" id="codec-count">0 字符</span><button class="copy-text" type="button" data-copy="codec-input">复制</button></span></div>
+              <textarea id="codec-input" class="code-input" spellcheck="false" placeholder="输入需要编码或解码的文本"></textarea>
+            </div>
+            <div class="editor-card output-card">
+              <div class="editor-header"><span><i data-lucide="arrow-right-left"></i>结果</span><span class="editor-header-actions"><button class="copy-text" type="button" data-copy="codec-output">复制</button></span></div>
+              <div id="codec-output" class="code-output placeholder-output">结果将实时显示在这里</div>
+            </div>
           </div>
         </section>
 

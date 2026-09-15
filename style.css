@@ -166,6 +166,7 @@ body.light .yaml-errline.is-error { background:rgba(168,52,26,.06); }
 .human-cron { display:flex; flex-direction:column; justify-content:center; border-right:1px solid var(--line); }
 .result-label { margin:0 0 9px; color:var(--dim); font:500 10px var(--mono); letter-spacing:1.1px; text-transform:uppercase; }
 .human-cron strong { color:var(--accent); font-size:15px; font-weight:500; line-height:1.65; }
+.cron-format-badge { display:inline-block; align-self:flex-start; margin:0 0 9px; padding:2px 8px; color:var(--accent); border:1px solid var(--accent); border-radius:var(--radius); font:10px var(--mono); letter-spacing:.5px; }
 .result-heading { display:flex; justify-content:space-between; align-items:center; }
 .result-heading span { color:var(--dim); font:10px var(--mono); }
 /* 执行时间是等宽数据，用行号式前缀强化「一条条读」的终端语感。 */
@@ -210,6 +211,11 @@ body.light .yaml-errline.is-error { background:rgba(168,52,26,.06); }
 .toast { position:fixed; z-index:3; left:50%; bottom:22px; padding:9px 13px; color:var(--accent-ink); border-radius:var(--radius); background:var(--accent); box-shadow:0 6px 24px rgba(0,0,0,.3); font:500 11.5px var(--mono); opacity:0; transform:translate(-50%, 10px); pointer-events:none; transition:.18s ease; }
 .toast.show { opacity:1; transform:translate(-50%, 0); }
 .timestamp-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+/* 时间戳面板的时区选择：label + 完整 IANA 时区下拉。 */
+.timezone-field { display:flex; align-items:center; gap:8px; }
+.timezone-field span { color:var(--muted); font:500 10px var(--mono); letter-spacing:1.1px; text-transform:uppercase; }
+.timezone-field select { height:33px; max-width:240px; padding:0 9px; color:var(--text); outline:0; border:1px solid var(--line); border-radius:var(--radius); background:var(--bg); font:11.5px var(--mono); }
+.timezone-field select:focus { border-color:var(--accent); }
 .inline-field { display:flex; gap:7px; }
 .inline-field input,.form-card > input { width:100%; height:40px; min-width:0; padding:0 12px; color:var(--text); border:1px solid var(--line); border-radius:var(--radius); outline:0; background:var(--bg); font:12.5px var(--mono); }
 .inline-field select { width:86px; padding:0 8px; color:var(--text); border:1px solid var(--line); border-radius:var(--radius); outline:0; background:var(--bg); font:11.5px var(--mono); }
@@ -218,9 +224,10 @@ body.light .yaml-errline.is-error { background:rgba(168,52,26,.06); }
 .timestamp-result span { color:var(--dim); font:10px var(--mono); letter-spacing:.8px; text-transform:uppercase; }
 .timestamp-result strong { color:var(--accent); font:13.5px var(--mono); font-weight:500; }
 .timestamp-result code { color:var(--muted); font:10.5px var(--mono); }
-/* 这两个面板在编辑区上方多一条控制栏，局部下调编辑区高度避免溢出。 */
+/* 这些面板在编辑区上方多一条控制栏，局部下调编辑区高度避免溢出。 */
 #regex { --editor-h:max(260px, calc(100vh - 392px)); }
 #rsa { --editor-h:max(260px, calc(100vh - 404px)); }
+#codec { --editor-h:max(260px, calc(100vh - 392px)); }
 .regex-bar { display:flex; align-items:center; gap:8px; padding:10px; margin-bottom:14px; border:1px solid var(--line); border-radius:var(--radius); background:var(--surface); }
 .regex-slash { color:var(--accent); font:19px var(--mono); }
 .regex-pattern { min-width:0; flex:1; height:33px; padding:0 7px; color:var(--syntax-str); border:0; outline:0; background:transparent; font:12.5px var(--mono); }
@@ -244,6 +251,12 @@ body.light .yaml-errline.is-error { background:rgba(168,52,26,.06); }
 .markdown-output pre { margin:0 0 11px; padding:11px; overflow:auto; border:1px solid var(--line); border-radius:var(--radius); background:var(--bg); }
 .markdown-output pre code { padding:0; background:transparent; }
 .markdown-output a { color:var(--accent); }
+/* 编码解码：操作选择栏取 regex-bar 的形制，hint 说明当前模式。 */
+.codec-bar { display:flex; align-items:center; gap:14px; padding:11px 14px; margin-bottom:14px; border:1px solid var(--line); border-radius:var(--radius); background:var(--surface); }
+.codec-select { height:33px; padding:0 9px; color:var(--text); outline:0; border:1px solid var(--line); border-radius:var(--radius); background:var(--bg); font:11.5px var(--mono); }
+.codec-select:focus { border-color:var(--accent); }
+.codec-hint { margin:0; color:var(--dim); font-size:11px; }
+.codec-output.is-error { color:var(--danger); }
 .jwt-input-card { min-height:auto; }
 .jwt-input { width:100%; height:104px; padding:13px 15px; resize:vertical; color:var(--text); border:0; outline:0; background:transparent; font:11.5px/1.6 var(--mono); }
 .jwt-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:14px; }
@@ -297,7 +310,7 @@ body.light {
   .panel-heading { margin-bottom:18px; }
   .editor-layout,.key-grid,.security-layout,.cron-result,.timestamp-grid,.jwt-grid,.password-generator { grid-template-columns:1fr; }
   /* 窄屏两块编辑区上下堆叠，各取视口的一部分即可。 */
-  :root,#regex,#rsa { --editor-h:clamp(200px, 42vh, 420px); }
+  :root,#regex,#rsa,#codec { --editor-h:clamp(200px, 42vh, 420px); }
   .editor-card { min-height:calc(var(--editor-h) + 38px); }
   .output-card { min-height:calc(var(--editor-h) + 38px); }
   .cron-result .human-cron { border-right:0; border-bottom:1px solid var(--line); }
@@ -305,6 +318,7 @@ body.light {
   .rsa-controls { align-items:stretch; flex-direction:column; }
   .select-field { min-width:0; }
   .rsa-controls .primary-button { margin:3px 0 0; }
+  .codec-bar { flex-wrap:wrap; }
   .key-output { height:var(--editor-h); }
   .password-result { border-right:0; border-bottom:1px solid var(--line); }
   .jwt-output-card .code-output { max-height:212px; }
@@ -319,6 +333,8 @@ body.light {
   .panel-heading { flex-direction:column; gap:13px; }
   .panel-heading .action-row { width:100%; }
   .panel-heading .secondary-button { flex:1; }
+  .timezone-field { flex:1; }
+  .timezone-field select { width:100%; max-width:none; }
   .footer-actions { align-items:stretch; flex-direction:column; }
   .footer-actions .action-row { width:100%; }
   .footer-actions button { flex:1; }
