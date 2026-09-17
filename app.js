@@ -1033,12 +1033,134 @@ function runRegex() {
   }
 }
 
+/** 行内 HTML 白名单：仅放行无属性、纯表现类的标签，其余一律按文本转义显示（防 XSS）。 */
+const INLINE_HTML_WHITELIST = /&lt;(\/?)(br|kbd|mark|sub|sup|u|s|ins|del)(\s*\/?)&gt;/g;
+
 function inlineMarkdown(value) {
-  return escapeHtml(value)
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
+  const codes = [];
+  // 先转义，再把行内代码提成占位符隔离，避免其中的 URL / 强调被二次解析。
+  let html = escapeHtml(value).replace(/`([^`]+)`/g, (m, c) => {
+    codes.push(c);
+    return `\u0000${codes.length - 1}\u0000`;
+  });
+  html = html
+    .replace(INLINE_HTML_WHITELIST, '<$1$2$3>')
+    .replace(/!\[([^\]]*)]\(([^\s)]+)\)/g, '<img src="$2" alt="$1" loading="lazy">')
+    .replace(/\[([^\]]+)]\(([^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-    .replace(/\[([^\]]+)]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+    .replace(/~~([^~]+)~~/g, '<del>$1</del>')
+    .replace(/(^|[\s(（])(https?:\/\/[^\s<]+)/g, (m, lead, url) => {
+      const tail = (url.match(/[，。；：！？、,.!?;:)\]}>]+$/) || [''])[0];
+      const body = url.slice(0, url.length - tail.length);
+      return `${lead}<a href="${body}" target="_blank" rel="noreferrer">${body}</a>${tail}`;
+    });
+  return html.replace(/\u0000(\d+)\u0000/g, (m, i) => `<code>${codes[Number(i)]}</code>`);
+}
+
+/** 解析表格行：去掉首尾竖线，按 | 切分并去除两端空白。 */
+function parseTableRow(line) {
+  let cells = line.trim();
+  if (cells.startsWith('|')) cells = cells.slice(1);
+  if (cells.endsWith('|')) cells = cells.slice(0, -1);
+  return cells.split('|').map((cell) => cell.trim());
+}
+
+/** 分隔行单元格形如 :---、---、---:、:---:。 */
+function isSeparatorCell(cell) {
+  return /^:?-+:?$/.test(cell);
+}
+
+/** 整行都是分隔单元格即为表格分隔行。 */
+function isSeparatorRow(line) {
+  const cells = parseTableRow(line);
+  return cells.length > 0 && cells.every(isSeparatorCell);
+}
+
+/** 由分隔单元格推断对齐方式，无冒号返回空串。 */
+function tableAlign(cell) {
+  const left = cell.startsWith(':');
+  const right = cell.endsWith(':');
+  if (left && right) return 'center';
+  if (right) return 'right';
+  if (left) return 'left';
+  return '';
+}
+
+/** 渲染表格：headers 为表头，aligns 为每列对齐，rows 为数据行。 */
+function renderTable(headers, aligns, rows) {
+  let html = '<table><thead><tr>';
+  headers.forEach((cell, i) => {
+    const align = aligns[i] ? ` style="text-align:${aligns[i]}"` : '';
+    html += `<th${align}>${inlineMarkdown(cell)}</th>`;
+  });
+  html += '</tr></thead><tbody>';
+  for (const row of rows) {
+    html += '<tr>';
+    headers.forEach((_, i) => {
+      const align = aligns[i] ? ` style="text-align:${aligns[i]}"` : '';
+      html += `<td${align}>${inlineMarkdown(row[i] ?? '')}</td>`;
+    });
+    html += '</tr>';
+  }
+  return `${html}</tbody></table>`;
+}
+
+/** 统计行首空格数，用于嵌套列表缩进判定。 */
+function indentOf(line) {
+  return line.length - line.trimStart().length;
+}
+
+/**
+ * 判断一行(已去除前导空格)是否为列表项。
+ * 返回 { ordered, task, content }，任务列表 task 为布尔、普通列表为 null；非列表返回 null。
+ */
+function matchListItem(line) {
+  const task = line.match(/^[-*+]\s+\[([ xX])\]\s*(.*)$/);
+  const unordered = line.match(/^[-*+]\s+(.+)$/);
+  const ordered = line.match(/^(\d+)[.)]\s+(.+)$/);
+  if (task) return { ordered: false, task: task[1].toLowerCase() === 'x', content: task[2] };
+  if (unordered) return { ordered: false, task: null, content: unordered[1] };
+  if (ordered) return { ordered: true, task: null, content: ordered[2], start: Number(ordered[1]) };
+  return null;
+}
+
+/**
+ * 从 index 开始解析一个列表(含嵌套子列表)，返回 [html, nextIndex]。
+ * 约定 lines[index] 是列表项，同一层级共享 baseIndent。
+ */
+function renderList(lines, index) {
+  const baseIndent = indentOf(lines[index]);
+  let html = '';
+  let openTag = null;
+  while (index < lines.length) {
+    const line = lines[index];
+    if (!line.trim()) break;
+    const indent = indentOf(line);
+    if (indent < baseIndent || indent > baseIndent) break;
+    const item = matchListItem(line.trim());
+    if (!item) break;
+    const tag = item.ordered ? 'ol' : 'ul';
+    if (openTag !== tag) {
+      if (openTag) html += `</${openTag}>`;
+      const startAttr = item.ordered && item.start !== 1 ? ` start="${item.start}"` : '';
+      html += `<${tag}${startAttr}>`;
+      openTag = tag;
+    }
+    html += '<li>';
+    if (item.task !== null) html += `<input type="checkbox" disabled${item.task ? ' checked' : ''}>`;
+    html += inlineMarkdown(item.content);
+    let next = index + 1;
+    if (next < lines.length && lines[next].trim() && indentOf(lines[next]) > indent && matchListItem(lines[next].trim())) {
+      const [subHtml, subNext] = renderList(lines, next);
+      html += subHtml;
+      next = subNext;
+    }
+    html += '</li>';
+    index = next;
+  }
+  if (openTag) html += `</${openTag}>`;
+  return [html, index];
 }
 
 /** 与 JSON 一致：字符数即时更新，预览渲染走防抖。 */
@@ -1057,31 +1179,52 @@ function renderMarkdown() {
   output.classList.remove('placeholder-output');
   const lines = source.replaceAll('\r', '').split('\n');
   let html = '';
-  let listType = null;
   let inCode = false;
-  const closeList = () => { if (listType) { html += `</${listType}>`; listType = null; } };
-  for (const line of lines) {
-    if (line.startsWith('```')) { closeList(); html += inCode ? '</code></pre>' : '<pre><code>'; inCode = !inCode; continue; }
+  let quoteLines = [];
+  const flushQuote = () => {
+    if (quoteLines.length) {
+      html += `<blockquote>${quoteLines.map(inlineMarkdown).join(' ')}</blockquote>`;
+      quoteLines = [];
+    }
+  };
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.startsWith('```')) { flushQuote(); html += inCode ? '</code></pre>' : '<pre><code>'; inCode = !inCode; continue; }
     if (inCode) { html += `${escapeHtml(line)}\n`; continue; }
-    const heading = line.match(/^(#{1,3})\s+(.+)$/);
-    const unordered = line.match(/^[-*+]\s+(.+)$/);
-    const ordered = line.match(/^\d+\.\s+(.+)$/);
-    if (heading) { closeList(); const level = heading[1].length; html += `<h${level}>${inlineMarkdown(heading[2])}</h${level}>`; }
-    else if (unordered) { if (listType !== 'ul') { closeList(); listType = 'ul'; html += '<ul>'; } html += `<li>${inlineMarkdown(unordered[1])}</li>`; }
-    else if (ordered) { if (listType !== 'ol') { closeList(); listType = 'ol'; html += '<ol>'; } html += `<li>${inlineMarkdown(ordered[1])}</li>`; }
-    else if (line.startsWith('> ')) { closeList(); html += `<blockquote>${inlineMarkdown(line.slice(2))}</blockquote>`; }
-    else if (/^---+$/.test(line)) { closeList(); html += '<hr>'; }
-    else if (!line.trim()) { closeList(); }
-    else { closeList(); html += `<p>${inlineMarkdown(line)}</p>`; }
+    const heading = line.match(/^(#{1,6})\s+(.+)$/);
+    if (heading) { flushQuote(); const level = heading[1].length; html += `<h${level}>${inlineMarkdown(heading[2])}</h${level}>`; }
+    else if (line.startsWith('>')) { quoteLines.push(line.slice(1).replace(/^\s/, '')); }
+    else if (/^---+$/.test(line)) { flushQuote(); html += '<hr>'; }
+    else if (line.includes('|') && !isSeparatorRow(line) && i + 1 < lines.length && isSeparatorRow(lines[i + 1])) {
+      flushQuote();
+      const headers = parseTableRow(line);
+      const aligns = parseTableRow(lines[i + 1]).map(tableAlign);
+      i += 1;
+      const rows = [];
+      while (i + 1 < lines.length && lines[i + 1].trim() && lines[i + 1].includes('|')) {
+        i += 1;
+        rows.push(parseTableRow(lines[i]));
+      }
+      html += renderTable(headers, aligns, rows);
+    }
+    else if (matchListItem(line.trim())) {
+      flushQuote();
+      const [listHtml, next] = renderList(lines, i);
+      html += listHtml;
+      i = next - 1;
+    }
+    else if (!line.trim()) { flushQuote(); }
+    else { flushQuote(); html += `<p>${inlineMarkdown(line)}</p>`; }
   }
-  closeList();
+  flushQuote();
   if (inCode) html += '</code></pre>';
   output.innerHTML = html;
 }
 
 /**
- * 示例覆盖渲染器支持的全部语法：三级标题、有序无序列表、粗体斜体、
- * 行内代码、链接、引用、代码块、分隔线。改渲染逻辑时可拿它当回归用例。
+ * 示例覆盖渲染器支持的全部语法：六级标题、有序无序/嵌套列表、任务列表、
+ * 粗体斜体删除线、行内代码、链接、图片、引用、代码块、表格、分隔线、裸 URL。
+ * 改渲染逻辑时可拿它当回归用例。
  */
 const MARKDOWN_SAMPLE = [
   '# 用户接口联调记录',
@@ -1100,10 +1243,31 @@ const MARKDOWN_SAMPLE = [
   '### 分页上限',
   '',
   '> 单页最多 100 条，超过按 100 截断，不报错。',
+  '> 如需更大上限，走导出接口。',
+  '',
+  '#### 补充说明',
+  '',
+  '- [x] 分页参数确认用 `offset`',
+  '- [ ] 补充错误码文档',
+  '- 对接方',
+  '  - 用户中心',
+  '  - 订单中心',
+  '',
+  '~~旧版签名规则~~ 已废弃，改用 HMAC。',
+  '',
+  '![架构图](https://placehold.co/600x200?text=architecture)',
   '',
   '```',
   'GET /api/users?page=1&size=20',
   '```',
+  '',
+  '| 环境 | 域名 | 状态 |',
+  '| --- | --- | --- |',
+  '| 开发 | dev.api.example.com | 正常 |',
+  '| 测试 | test.api.example.com | 正常 |',
+  '| 生产 | api.example.com | **只读** |',
+  '',
+  '文档见 https://www.rfc-editor.org/rfc/rfc7807 ，有问题直接提。',
   '',
   '---',
   '',
